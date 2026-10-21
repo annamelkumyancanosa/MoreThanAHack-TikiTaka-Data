@@ -218,3 +218,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------
+# Match data (NOT redistributable)
+# Each team member downloads it locally into data/.
+# Never commit it: the repo must be public at submission time.
+# ---------------------------------------------------------------
+data/*
+!data/.gitkeep
+*.mp4
+*.avi
+*.mov
+
+# Generated outputs 
+submissions/*.csv
