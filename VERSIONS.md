@@ -25,7 +25,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v2 | `d9fb43f` | 0.7707 | 0.4615 | 22 | 0.940 | 393 · 43% |
 | v2.1 | `bb2b6b7` | 0.7868 | 0.4889 | 19 | 0.937 | 356 · 48% |
 | v2.2 | `e0b56c1` | 0.8057 | 0.4889 | 19 | 0.948 | 360 · 47% |
-| v3 | (pendiente) | 0.8057 | 0.4889 | 19 | 0.948 | 364 · 47% |
+| v3 | `0c3e5dd` | 0.8057 | 0.4889 | 19 | 0.948 | 364 · 47% |
 
 Partido completo vs Smart Tagging:
 
