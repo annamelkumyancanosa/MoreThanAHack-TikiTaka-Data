@@ -3,8 +3,8 @@
     python run.py                 # escribe evaluation/results/tikitaka_v1.csv y puntúa
     python run.py --name prueba   # mismo, con otro nombre (para comparar variantes)
 
-Además imprime diagnósticos del partido completo (nº de posesiones, duraciones): son nuestras
-predicciones, no el ground truth, y sirven para detectar si fragmentamos de más.
+Además imprime diagnósticos del partido completo (nº de posesiones, duraciones, y comparación con
+el Smart Tagging): no es ground truth, pero sirve para ver si una mejora pública se sostiene.
 """
 
 import argparse
@@ -19,6 +19,7 @@ sys.path.insert(0, ROOT)
 from games import half_video_blocks  # noqa: E402
 from src.atd import load_tracking  # noqa: E402
 from src.possession import predict  # noqa: E402
+from notebooks.validate_full_match import fill_x, load_tags, summarise  # noqa: E402
 
 RESULTS_DIR = os.path.join(ROOT, "evaluation", "results")
 SECOND_HALF_KICKOFF = 113742  # publicado en FAQ.md
@@ -53,6 +54,14 @@ def diagnostics(labels, blocks):
         "{} {:.1%}".format(k, np.mean(graded == k)) for k in "HADX"))
 
 
+def full_match_check(labels, blocks):
+    """Comparación con el Smart Tagging en todo el partido (detalle: notebooks/validate_full_match.py)."""
+    row = summarise(fill_x(np.asarray(labels).astype("<U1"), blocks), load_tags(), blocks)
+    print("  vs Smart Tagging: equipo coincide {:.1%} | D en fase ofensiva {:.1%} | "
+          "set pieces con D cerca {:.1%}, reanuda el equipo del tag {:.1%}".format(
+              row["team_agree"], row["phase_D"], row["sp_dead"], row["sp_team"]))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", default="tikitaka_v1")
@@ -65,7 +74,9 @@ def main():
     write_submission(path, labels)
     print("escrito", os.path.relpath(path, ROOT))
     diagnostics(labels, blocks)
+    full_match_check(labels, blocks)
 
+    sys.stdout.flush()  # que lo nuestro salga antes que la salida de los subprocesos
     py = sys.executable
     subprocess.run([py, os.path.join(ROOT, "evaluation", "validate_submission.py"), path], check=True)
     subprocess.run([py, os.path.join(ROOT, "evaluation", "run_evaluation.py")], check=True)
