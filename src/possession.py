@@ -1,14 +1,20 @@
-"""v1: máquina de estados de posesión a partir del tracking.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v2.2.
 
 Idea general (en lenguaje de fútbol):
-  1. Balón muerto (D): cuando los jugadores se paran (velocidad colectiva baja durante unos
-     segundos) o el balón sale del campo.
+  1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
+     del campo. No se sale del parón sin una reanudación clara (los jugadores aceleran).
   2. Control: un jugador "tiene" el balón si está pegado a él (< CONTROL_DIST_M).
   3. La posesión solo cambia si el rival controla el balón de forma sostenida
      (SWITCH_FRAMES frames). Toques sueltos, rebotes y balones divididos no la cambian.
   4. Si nadie controla (balón suelto, por el aire o invisible), se mantiene la posesión anterior.
 
 Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
+
+Historial (detalle y resultados en VERSIONS.md):
+  v1   D = jugadores lentos o balón fuera; control < CONTROL_DIST_M; histéresis SWITCH_FRAMES.
+  v2   D exige además balón inactivo (ball_active): el Barça circula despacio y no es parón.
+  v2.1 merge_dead_gaps: une trozos de un mismo parón si los jugadores siguen lentos (mediana).
+  v2.2 merge_dead_gaps usa el máximo: si alguien alcanza ritmo de juego, hubo reanudación.
 """
 
 import numpy as np
@@ -143,7 +149,9 @@ def merge_dead_gaps(dead, speed):
     for start, end in _runs(~dead):
         if start == 0 or end == len(dead) or end - start > MAX_DEAD_MERGE_FRAMES:
             continue
-        if np.median(speed[start:end]) < RESTART_SPEED_MS:
+        # v2.2: máximo en lugar de mediana. Si en algún momento del hueco el equipo alcanza ritmo
+        # de juego, hubo reanudación y no unimos (la v2.1 con mediana se comió una posesión real).
+        if np.max(speed[start:end]) < RESTART_SPEED_MS:
             dead[start:end] = True
     return dead
 
