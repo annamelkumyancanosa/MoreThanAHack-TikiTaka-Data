@@ -1,0 +1,184 @@
+"""v1: máquina de estados de posesión a partir del tracking.
+
+Idea general (en lenguaje de fútbol):
+  1. Balón muerto (D): cuando los jugadores se paran (velocidad colectiva baja durante unos
+     segundos) o el balón sale del campo.
+  2. Control: un jugador "tiene" el balón si está pegado a él (< CONTROL_DIST_M).
+  3. La posesión solo cambia si el rival controla el balón de forma sostenida
+     (SWITCH_FRAMES frames). Toques sueltos, rebotes y balones divididos no la cambian.
+  4. Si nadie controla (balón suelto, por el aire o invisible), se mantiene la posesión anterior.
+
+Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
+"""
+
+import numpy as np
+
+from src.atd import HOME, AWAY
+
+NOBODY = -1
+FPS = 25
+
+# ---------------------------------------------------------------------------------------------
+# PARÁMETROS
+# ---------------------------------------------------------------------------------------------
+
+# --- Balón muerto ---
+# Velocidad mediana de los jugadores (m/s) por debajo de la cual consideramos que el juego está
+# parado. En la ventana pública: ~1.2 m/s en D frente a 2.0-2.5 m/s con balón vivo.
+DEAD_SPEED_MS = 1.5
+# Ventana (frames) del promedio móvil de esa velocidad, para no reaccionar a un frame suelto.
+SPEED_SMOOTH_FRAMES = 2 * FPS
+# Un tramo D más corto que esto se descarta (los parones reales duran 5-20 s).
+MIN_DEAD_FRAMES = 3 * FPS
+# Un tramo "vivo" más corto que esto entre dos tramos D se considera parte del parón.
+MIN_ALIVE_GAP_FRAMES = 2 * FPS
+# Metros más allá de la línea para decir que el balón está fuera (el tracking tiene ruido).
+OUT_MARGIN_M = 1.0
+
+# --- Control del balón ---
+# Distancia máxima (m) jugador-balón para considerar que lo controla.
+# Con < 1 m el equipo del más cercano acierta el 91%; con 1-2 m el 83%.
+CONTROL_DIST_M = 1.5
+
+# --- Cambio de posesión (histéresis) ---
+# Frames de control del rival necesarios para cambiar la posesión (10 = 0.4 s).
+# Los frames sin control (balón suelto/invisible) no suman ni resetean el contador;
+# un frame de control del equipo actual sí lo resetea.
+SWITCH_FRAMES = 10
+
+
+# ---------------------------------------------------------------------------------------------
+# REGLAS
+# ---------------------------------------------------------------------------------------------
+
+def _runs(mask):
+    """Lista de (inicio, fin_exclusivo) de cada tramo seguido de True en `mask`."""
+    edges = np.flatnonzero(np.diff(np.r_[0, mask.astype(np.int8), 0]))
+    return list(zip(edges[::2], edges[1::2]))
+
+
+def players_speed(trk):
+    """Velocidad mediana de los jugadores visibles en cada frame, suavizada en el tiempo."""
+    speed = np.nanmedian(trk["players"][..., 2], axis=1)
+    # Rellenamos huecos (frames sin jugadores) con el valor anterior antes de suavizar.
+    speed = _ffill(speed)
+    kernel = np.ones(SPEED_SMOOTH_FRAMES) / SPEED_SMOOTH_FRAMES
+    return np.convolve(speed, kernel, mode="same")
+
+
+def ball_out(trk):
+    """True donde el balón es visible y está fuera del rectángulo de juego."""
+    length, width = trk["pitch"]
+    bx, by = trk["ball"][:, 0], trk["ball"][:, 1]
+    with np.errstate(invalid="ignore"):
+        return ((bx < -OUT_MARGIN_M) | (bx > length + OUT_MARGIN_M)
+                | (by < -OUT_MARGIN_M) | (by > width + OUT_MARGIN_M))
+
+
+def detect_dead(trk):
+    """Máscara de balón muerto: jugadores parados o balón fuera, limpiada por duración."""
+    dead = (players_speed(trk) < DEAD_SPEED_MS) | ball_out(trk)
+
+    # 1) Rellenar huecos "vivos" cortos dentro de un parón (p. ej. alguien trota para sacar).
+    for start, end in _runs(~dead):
+        if end - start < MIN_ALIVE_GAP_FRAMES and start > 0 and end < len(dead):
+            dead[start:end] = True
+    # 2) Quitar parones demasiado cortos para ser reales.
+    for start, end in _runs(dead):
+        if end - start < MIN_DEAD_FRAMES:
+            dead[start:end] = False
+    return dead
+
+
+def control_team(trk):
+    """Equipo que controla el balón en cada frame (HOME/AWAY), o NOBODY.
+
+    NOBODY si el balón no se ve o si nadie está a menos de CONTROL_DIST_M.
+    """
+    ball, players, team = trk["ball"], trk["players"], trk["team"]
+    dist = np.hypot(players[..., 0] - ball[:, None, 0], players[..., 1] - ball[:, None, 1])
+    dist = np.where(np.isnan(dist), np.inf, dist)
+
+    nearest = np.argmin(dist, axis=1)
+    nearest_dist = dist[np.arange(len(dist)), nearest]
+    out = np.where(nearest_dist < CONTROL_DIST_M, team[nearest], NOBODY)
+    return out.astype(np.int8)
+
+
+def assign_possession(control, dead):
+    """Recorre cada tramo vivo y decide la posesión con histéresis.
+
+    Devuelve un array de HOME/AWAY/NOBODY (NOBODY = muerto o sin información).
+    """
+    poss = np.full(len(control), NOBODY, dtype=np.int8)
+
+    for start, end in _runs(~dead):
+        # Tras un parón, quien primero controla el balón es quien reanuda: esa es la posesión
+        # inicial del tramo (también para los frames anteriores a ese primer control).
+        controlled = np.flatnonzero(control[start:end] != NOBODY)
+        if len(controlled) == 0:
+            continue
+        current = control[start + controlled[0]]
+        poss[start:start + controlled[0]] = current
+
+        challenger_count = 0
+        challenger_since = None  # primer frame de la racha del rival, para fechar el cambio
+        for f in range(start + controlled[0], end):
+            c = control[f]
+            if c == current:
+                challenger_count, challenger_since = 0, None
+            elif c != NOBODY:
+                if challenger_since is None:
+                    challenger_since = f
+                challenger_count += 1
+                if challenger_count >= SWITCH_FRAMES:
+                    # Cambio confirmado: lo fechamos al inicio de la racha del rival.
+                    current = c
+                    poss[challenger_since:f] = current
+                    challenger_count, challenger_since = 0, None
+            poss[f] = current
+    return poss
+
+
+# ---------------------------------------------------------------------------------------------
+# PIPELINE
+# ---------------------------------------------------------------------------------------------
+
+def predict(trk, graded_blocks, second_half_kickoff=None):
+    """Etiquetas finales por frame ('H'/'A'/'D'/'X').
+
+    graded_blocks: [(half, first_frame, last_frame), ...] de games.half_video_blocks.
+    second_half_kickoff: frame del saque de la 2ª parte; antes de él todo es D (dato publicado).
+    """
+    dead = detect_dead(trk)
+    control = control_team(trk)
+    poss = assign_possession(control, dead)
+
+    labels = np.full(len(poss), "X", dtype="<U1")
+    labels[poss == HOME] = "H"
+    labels[poss == AWAY] = "A"
+    labels[dead] = "D"
+
+    if second_half_kickoff is not None:
+        half2_start = [b for b in graded_blocks if b[0] == 2][0][1]
+        labels[half2_start:second_half_kickoff] = "D"
+
+    # Fuera de las partes no se puntúa: X.
+    graded = np.zeros(len(labels), dtype=bool)
+    for _, first, last in graded_blocks:
+        graded[first:last + 1] = True
+    labels[~graded] = "X"
+    return labels
+
+
+def _ffill(values):
+    """Rellena NaN con el último valor válido (y al principio, con el primero válido)."""
+    values = values.copy()
+    mask = np.isnan(values)
+    idx = np.where(~mask, np.arange(len(values)), 0)
+    np.maximum.accumulate(idx, out=idx)
+    values = values[idx]
+    first_valid = np.flatnonzero(~np.isnan(values))
+    if len(first_valid):
+        values[:first_valid[0]] = values[first_valid[0]]
+    return values
