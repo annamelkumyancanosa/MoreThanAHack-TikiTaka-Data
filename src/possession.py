@@ -34,6 +34,12 @@ MIN_DEAD_FRAMES = 3 * FPS
 MIN_ALIVE_GAP_FRAMES = 2 * FPS
 # Metros más allá de la línea para decir que el balón está fuera (el tracking tiene ruido).
 OUT_MARGIN_M = 1.0
+# v2: jugadores lentos no basta (el Barça circula despacio). Exigimos además que el balón esté
+# "inactivo": que en una ventana de BALL_ACTIVE_WINDOW frames no supere BALL_ACTIVE_MS (un pase
+# viaja a >8 m/s; un balón que se coloca para sacar, a pocos m/s) o que no se vea.
+# Ventana pública, frames lentos: velocidad máx. del balón en 2 s ~3 m/s en D vs ~12 m/s vivo.
+BALL_ACTIVE_MS = 6.0
+BALL_ACTIVE_WINDOW = 2 * FPS
 
 # --- Control del balón ---
 # Distancia máxima (m) jugador-balón para considerar que lo controla.
@@ -75,9 +81,36 @@ def ball_out(trk):
                 | (by < -OUT_MARGIN_M) | (by > width + OUT_MARGIN_M))
 
 
+def ball_speed(trk):
+    """Velocidad del balón (m/s) calculada de posiciones consecutivas; NaN si no se ve.
+
+    El campo de velocidad del tracking viene vacío en ~91% de frames, por eso la calculamos.
+    """
+    ball = trk["ball"]
+    step = np.hypot(np.diff(ball[:, 0], prepend=np.nan), np.diff(ball[:, 1], prepend=np.nan))
+    return step * FPS
+
+
+def ball_active(trk):
+    """True si en la ventana centrada de BALL_ACTIVE_WINDOW frames el balón supera BALL_ACTIVE_MS.
+
+    Un balón invisible cuenta como no activo (velocidad 0) en esa ventana.
+    """
+    fast = np.nan_to_num(ball_speed(trk), nan=0.0) > BALL_ACTIVE_MS
+    # Máximo móvil sobre una máscara booleana = "hay algún frame rápido en la ventana".
+    counts = np.convolve(fast.astype(np.int32), np.ones(BALL_ACTIVE_WINDOW, dtype=np.int32),
+                         mode="same")
+    return counts > 0
+
+
 def detect_dead(trk):
-    """Máscara de balón muerto: jugadores parados o balón fuera, limpiada por duración."""
-    dead = (players_speed(trk) < DEAD_SPEED_MS) | ball_out(trk)
+    """Máscara de balón muerto, limpiada por duración.
+
+    v1: jugadores lentos o balón fuera.
+    v2: (jugadores lentos Y balón inactivo) o balón fuera.
+    """
+    slow = players_speed(trk) < DEAD_SPEED_MS
+    dead = (slow & ~ball_active(trk)) | ball_out(trk)
 
     # 1) Rellenar huecos "vivos" cortos dentro de un parón (p. ej. alguien trota para sacar).
     for start, end in _runs(~dead):
