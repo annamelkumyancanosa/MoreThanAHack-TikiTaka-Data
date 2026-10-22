@@ -232,3 +232,15 @@ data/*
 
 # Generated outputs 
 submissions/*.csv
+evaluation/results/*.csv
+!evaluation/results/baseline_*.csv
+evaluation/reports/
+evaluation/scoreboard.csv
+
+# Full ground truth must never be committed
+*_possession_gt.csv
+*_possession_gt_meta.json
+*_possession_gt_reference.csv
+
+# Windows download metadata
+*:Zone.Identifier
