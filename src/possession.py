@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v2.2.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -7,6 +7,7 @@ Idea general (en lenguaje de fútbol):
   3. La posesión solo cambia si el rival controla el balón de forma sostenida
      (SWITCH_FRAMES frames). Toques sueltos, rebotes y balones divididos no la cambian.
   4. Si nadie controla (balón suelto, por el aire o invisible), se mantiene la posesión anterior.
+  5. Tras un parón con set piece en el Smart Tagging, reanuda el equipo del tag.
 
 Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
 
@@ -15,6 +16,7 @@ Historial (detalle y resultados en VERSIONS.md):
   v2   D exige además balón inactivo (ball_active): el Barça circula despacio y no es parón.
   v2.1 merge_dead_gaps: une trozos de un mismo parón si los jugadores siguen lentos (mediana).
   v2.2 merge_dead_gaps usa el máximo: si alguien alcanza ritmo de juego, hubo reanudación.
+  v3   restart_teams: si un set piece (Smart Tagging) cae dentro de un parón, su equipo reanuda.
 """
 
 import numpy as np
@@ -63,6 +65,12 @@ CONTROL_DIST_M = 1.5
 # Los frames sin control (balón suelto/invisible) no suman ni resetean el contador;
 # un frame de control del equipo actual sí lo resetea.
 SWITCH_FRAMES = 10
+
+# --- Reanudación (v3) ---
+# Un set piece cuenta para un parón si su inicio cae dentro del D o hasta RESTART_TAG_SLACK
+# frames antes (el tiempo del tag puede ir algo desfasado). En el partido, 24 de 27 set pieces
+# con equipo empiezan dentro de un D nuestro, de media 6.5 s antes de que acabe.
+RESTART_TAG_SLACK = 2 * FPS
 
 
 # ---------------------------------------------------------------------------------------------
@@ -171,20 +179,42 @@ def control_team(trk):
     return out.astype(np.int8)
 
 
-def assign_possession(control, dead):
+def restart_teams(dead, restarts):
+    """{primer frame vivo tras un parón: equipo que reanuda} según los set pieces del tagging.
+
+    `restarts` es [(frame, HOME/AWAY)] de src.tagging.restarts. Si varios caen en el mismo parón,
+    manda el último (el más cercano a la reanudación).
+    """
+    out = {}
+    for start, end in _runs(dead):
+        for frame, team in restarts:
+            if start - RESTART_TAG_SLACK <= frame < end and end < len(dead):
+                out[end] = team
+    return out
+
+
+def assign_possession(control, dead, restart_team=None):
     """Recorre cada tramo vivo y decide la posesión con histéresis.
 
-    Devuelve un array de HOME/AWAY/NOBODY (NOBODY = muerto o sin información).
+    `restart_team`: {primer frame vivo: equipo} (ver restart_teams); sin él, reanuda quien
+    controla primero. Devuelve un array de HOME/AWAY/NOBODY (NOBODY = muerto o sin información).
     """
     poss = np.full(len(control), NOBODY, dtype=np.int8)
+    restart_team = restart_team or {}
 
     for start, end in _runs(~dead):
-        # Tras un parón, quien primero controla el balón es quien reanuda: esa es la posesión
-        # inicial del tramo (también para los frames anteriores a ese primer control).
         controlled = np.flatnonzero(control[start:end] != NOBODY)
-        if len(controlled) == 0:
+        if start in restart_team:
+            # v3: el set piece dice quién saca. Arrancamos con ese equipo desde el primer frame;
+            # la histéresis cambia la posesión si el rival la gana después.
+            current = restart_team[start]
+            controlled = np.r_[0, controlled]
+        elif len(controlled) == 0:
             continue
-        current = control[start + controlled[0]]
+        else:
+            # Tras un parón, quien primero controla el balón es quien reanuda: esa es la posesión
+            # inicial del tramo (también para los frames anteriores a ese primer control).
+            current = control[start + controlled[0]]
         poss[start:start + controlled[0]] = current
 
         challenger_count = 0
@@ -210,15 +240,16 @@ def assign_possession(control, dead):
 # PIPELINE
 # ---------------------------------------------------------------------------------------------
 
-def predict(trk, graded_blocks, second_half_kickoff=None):
+def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
     """Etiquetas finales por frame ('H'/'A'/'D'/'X').
 
     graded_blocks: [(half, first_frame, last_frame), ...] de games.half_video_blocks.
     second_half_kickoff: frame del saque de la 2ª parte; antes de él todo es D (dato publicado).
+    restarts: [(frame, HOME/AWAY)] de src.tagging.restarts (v3); None = sin Smart Tagging.
     """
     dead = detect_dead(trk)
     control = control_team(trk)
-    poss = assign_possession(control, dead)
+    poss = assign_possession(control, dead, restart_teams(dead, restarts or []))
 
     labels = np.full(len(poss), "X", dtype="<U1")
     labels[poss == HOME] = "H"

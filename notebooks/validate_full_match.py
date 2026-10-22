@@ -22,14 +22,14 @@ import argparse
 import glob
 import os
 import sys
-import xml.etree.ElementTree as ET
 
 import numpy as np
 import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from games import asset_paths, half_video_blocks  # noqa: E402
+from games import half_video_blocks  # noqa: E402
+from src.tagging import load_tags  # noqa: E402
 
 FPS = 25
 RESULTS_DIR = os.path.join(ROOT, "evaluation", "results")
@@ -38,28 +38,11 @@ GT_PATH = os.path.join(ROOT, "evaluation", "gt", "BAR-ATH_possession_gt_public.c
 # Fases en las que el `Team` del tag es el que tiene el balón.
 POSSESSION_CODES = ("BUILD UP", "PROGRESSION", "CREATING CHANCES", "LONG BALL",
                     "ATTACKING TRANSITION")
-TEAM_CODE = {"Barcelona": "H", "Atletic Club": "A"}
 # Margen (frames) alrededor del inicio de un SET PIECE donde buscamos nuestro parón: el tiempo
 # del tag puede ir desfasado 3-12 s respecto al vídeo.
 SET_PIECE_WINDOW = 12 * FPS
 # Tamaño de bloque para el detalle (igual que la tabla de % balón visible de CONTEXT.md).
 BLOCK_FRAMES = 5 * 60 * FPS
-
-
-def load_tags():
-    """Smart Tagging como DataFrame: code, team (H/A/None), type, start, end (frames de vídeo)."""
-    path = asset_paths()["smart_tagging"]
-    rows = []
-    for inst in ET.parse(path).getroot().iter("instance"):
-        labels = {lab.findtext("group"): lab.findtext("text") for lab in inst.findall("label")}
-        rows.append({
-            "code": inst.findtext("code"),
-            "team": TEAM_CODE.get(labels.get("Team")),
-            "type": labels.get("Type"),
-            "start": int(round(float(inst.findtext("start")) * FPS)),
-            "end": int(round(float(inst.findtext("end")) * FPS)),
-        })
-    return pd.DataFrame(rows)
 
 
 def graded_mask(n_frames, blocks):

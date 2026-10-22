@@ -19,7 +19,8 @@ sys.path.insert(0, ROOT)
 from games import half_video_blocks  # noqa: E402
 from src.atd import load_tracking  # noqa: E402
 from src.possession import predict  # noqa: E402
-from notebooks.validate_full_match import fill_x, load_tags, summarise  # noqa: E402
+from src.tagging import load_tags, restarts  # noqa: E402
+from notebooks.validate_full_match import fill_x, summarise  # noqa: E402
 
 RESULTS_DIR = os.path.join(ROOT, "evaluation", "results")
 SECOND_HALF_KICKOFF = 113742  # publicado en FAQ.md
@@ -64,11 +65,11 @@ def full_match_check(labels, blocks):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", default="tikitaka_v1")
+    parser.add_argument("--name", default="tikitaka_v3")
     args = parser.parse_args()
 
     blocks = half_video_blocks("BAR-ATH")
-    labels = predict(load_tracking(), blocks, SECOND_HALF_KICKOFF)
+    labels = predict(load_tracking(), blocks, SECOND_HALF_KICKOFF, restarts(load_tags()))
 
     path = os.path.join(RESULTS_DIR, args.name + ".csv")
     write_submission(path, labels)
