@@ -40,6 +40,12 @@ OUT_MARGIN_M = 1.0
 # Ventana pública, frames lentos: velocidad máx. del balón en 2 s ~3 m/s en D vs ~12 m/s vivo.
 BALL_ACTIVE_MS = 6.0
 BALL_ACTIVE_WINDOW = 2 * FPS
+# v2.1: durante un parón el balón se mueve (lo recolocan, se lo pasan al que saca) y eso parte
+# el D en trozos. Un hueco "vivo" entre dos tramos D de hasta MAX_DEAD_MERGE_FRAMES se considera
+# parte del mismo parón si los jugadores siguen lentos en él (mediana de players_speed por debajo
+# de RESTART_SPEED_MS): tras una reanudación real, el equipo se activa.
+MAX_DEAD_MERGE_FRAMES = 8 * FPS
+RESTART_SPEED_MS = DEAD_SPEED_MS
 
 # --- Control del balón ---
 # Distancia máxima (m) jugador-balón para considerar que lo controla.
@@ -108,18 +114,37 @@ def detect_dead(trk):
 
     v1: jugadores lentos o balón fuera.
     v2: (jugadores lentos Y balón inactivo) o balón fuera.
+    v2.1: además, no se sale del parón sin reanudación clara (ver merge_dead_gaps).
     """
-    slow = players_speed(trk) < DEAD_SPEED_MS
+    speed = players_speed(trk)
+    slow = speed < DEAD_SPEED_MS
     dead = (slow & ~ball_active(trk)) | ball_out(trk)
 
     # 1) Rellenar huecos "vivos" cortos dentro de un parón (p. ej. alguien trota para sacar).
     for start, end in _runs(~dead):
         if end - start < MIN_ALIVE_GAP_FRAMES and start > 0 and end < len(dead):
             dead[start:end] = True
+    # 1b) Unir trozos de un mismo parón separados por huecos donde nadie acelera.
+    dead = merge_dead_gaps(dead, speed)
     # 2) Quitar parones demasiado cortos para ser reales.
     for start, end in _runs(dead):
         if end - start < MIN_DEAD_FRAMES:
             dead[start:end] = False
+    return dead
+
+
+def merge_dead_gaps(dead, speed):
+    """Convierte en D los huecos vivos cortos entre dos D si los jugadores siguen lentos.
+
+    `speed` es players_speed (ya suavizada). Solo huecos con D a ambos lados y de longitud
+    <= MAX_DEAD_MERGE_FRAMES; el criterio es la mediana de `speed` en el hueco.
+    """
+    dead = dead.copy()
+    for start, end in _runs(~dead):
+        if start == 0 or end == len(dead) or end - start > MAX_DEAD_MERGE_FRAMES:
+            continue
+        if np.median(speed[start:end]) < RESTART_SPEED_MS:
+            dead[start:end] = True
     return dead
 
 
