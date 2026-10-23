@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.1.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.2.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -8,6 +8,7 @@ Idea general (en lenguaje de fútbol):
      (SWITCH_FRAMES frames). Toques sueltos, rebotes y balones divididos no la cambian.
   4. Si nadie controla (balón suelto, por el aire o invisible), se mantiene la posesión anterior.
   5. Tras un parón con set piece en el Smart Tagging, reanuda el equipo del tag.
+  6. Una posesión corta justo antes de un parón es el que recoge el balón: no cuenta.
 
 Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
 
@@ -18,6 +19,7 @@ Historial (detalle y resultados en VERSIONS.md):
   v2.2 merge_dead_gaps usa el máximo: si alguien alcanza ritmo de juego, hubo reanudación.
   v3   restart_teams: si un set piece (Smart Tagging) cae dentro de un parón, su equipo reanuda.
   v3.1 merge_dead_gaps solo une huecos <= 3 s: los de 5-8 s eran juego en el partido completo.
+  v3.2 SWITCH_FRAMES 10 -> 20 (un toque no es posesión) y absorb_pre_dead.
 """
 
 import numpy as np
@@ -65,10 +67,20 @@ RESTART_SPEED_MS = DEAD_SPEED_MS
 CONTROL_DIST_M = 1.5
 
 # --- Cambio de posesión (histéresis) ---
-# Frames de control del rival necesarios para cambiar la posesión (10 = 0.4 s).
+# Frames de control del rival necesarios para cambiar la posesión (20 = 0.8 s).
 # Los frames sin control (balón suelto/invisible) no suman ni resetean el contador;
 # un frame de control del equipo actual sí lo resetea.
-SWITCH_FRAMES = 10
+# v3.2: 10 -> 20. Con 10, 73 posesiones < 3 s en el partido eran interrupciones (A-H-A) con ~0.7 s
+# de control, 75% en fase ofensiva del rival: toques, no posesión controlada (CHALLENGE.md). Con 20
+# quedan 21 y se siguen capturando 22 de 24 robos (ATTACKING TRANSITION); con 30 la ventana
+# pública se hunde (17 -> 10 posesiones).
+SWITCH_FRAMES = 20
+
+# v3.2: una posesión de menos de PRE_DEAD_MAX_FRAMES justo antes de un parón vuelve al equipo
+# anterior: suele ser quien recoge el balón para sacar antes de que detectemos el D (en el partido,
+# 92% de esas posesiones caen en fase ofensiva del rival). La H real de 3.5 s antes del parón de la
+# ventana pública queda fuera del umbral.
+PRE_DEAD_MAX_FRAMES = 3 * FPS
 
 # --- Reanudación (v3) ---
 # Un set piece cuenta para un parón si su inicio cae dentro del D o hasta RESTART_TAG_SLACK
@@ -168,6 +180,25 @@ def merge_dead_gaps(dead, speed):
     return dead
 
 
+def absorb_pre_dead(poss, dead):
+    """Devuelve al equipo anterior la última posesión de un tramo vivo si dura < PRE_DEAD_MAX_FRAMES.
+
+    Solo si el tramo vivo acaba en un parón y antes de esa posesión hubo otra del rival.
+    """
+    poss = poss.copy()
+    for start, end in _runs(~dead):
+        if end == len(dead):
+            continue
+        seg = poss[start:end]
+        change = np.flatnonzero(seg[1:] != seg[:-1]) + 1
+        if len(change) == 0:
+            continue
+        last = change[-1]
+        if end - (start + last) < PRE_DEAD_MAX_FRAMES and seg[last - 1] != NOBODY:
+            poss[start + last:end] = seg[last - 1]
+    return poss
+
+
 def control_team(trk):
     """Equipo que controla el balón en cada frame (HOME/AWAY), o NOBODY.
 
@@ -254,6 +285,7 @@ def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
     dead = detect_dead(trk)
     control = control_team(trk)
     poss = assign_possession(control, dead, restart_teams(dead, restarts or []))
+    poss = absorb_pre_dead(poss, dead)  # v3.2
 
     labels = np.full(len(poss), "X", dtype="<U1")
     labels[poss == HOME] = "H"

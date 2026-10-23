@@ -27,6 +27,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v2.2 | `e0b56c1` | 0.8057 | 0.4889 | 19 | 0.948 | 360 · 47% |
 | v3 | `0c3e5dd` | 0.8057 | 0.4889 | 19 | 0.948 | 364 · 47% |
 | v3.1 | `000ebec` | 0.7751 | 0.4632 | 21 | 0.938 | 381 · 45% |
+| v3.2 | `PENDIENTE` | 0.7916 | 0.4706 | **17** | 0.938 | 260 · 45% |
 
 Partido completo vs Smart Tagging:
 
@@ -38,9 +39,14 @@ Partido completo vs Smart Tagging:
 | v2.1 | 79.7 | 24.4 | 50.0 | 56.0 |
 | v2.2 | 79.8 | 22.8 | 48.7 | 56.0 |
 | v3 | 80.2 | 22.1 | 48.1 | 88.0* |
-| v3.1 | **80.5** | 19.7 | 45.9 | 96.0* |
+| v3.1 | 80.5 | 19.7 | 45.9 | 96.0* |
+| v3.2 | **84.6**† | 19.7 | 45.9 | 96.0* |
 
-\* circular: v3 y v3.1 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
+\* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
+
+† desde v3.2 `equipo` no sirve para comparar histéresis: sube siempre que cambiamos menos de
+equipo (las fases son gruesas). Para eso, `robos` = % de ATTACKING TRANSITION (24 en el partido)
+con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24.
 
 ## Detalle
 
@@ -118,3 +124,32 @@ Partido completo vs Smart Tagging:
   posesión" 5/13; "rival del último que toca" 6/13 (en el parón alguien recoge el balón y cuenta
   como toque). Nos quedamos con lo actual: a diferencia de los córners, en un saque de banda no
   hay rivales pegados al balón.
+
+### v3.2 — un toque no es posesión
+- **Motivo**: v3.1 tenía 112 posesiones < 3 s en el partido (381 en total). 73 eran
+  interrupciones (A‑H‑A) con ~0.7 s de control y el rival a 2 m, el 75% en fase ofensiva del
+  rival (posesiones > 15 s: 10%). La definición oficial (CHALLENGE.md) exige posesión
+  *controlada*: un toque, un desvío o un duelo aéreo sin control no cambian la posesión. En la
+  ventana pública, las 3 interrupciones cortas que predecíamos eran falsas.
+- Otras 22 posesiones < 3 s iban justo antes de un parón, 92% en fase del rival: el que recoge
+  el balón para sacar antes de que detectemos el D.
+- **Cambios**: `SWITCH_FRAMES` 10 → 20 (0.8 s de control del rival); `absorb_pre_dead`: la
+  última posesión de un tramo vivo, si dura < `PRE_DEAD_MAX_FRAMES` (3 s), vuelve al equipo
+  anterior.
+- **Barrido** (con la regla "pre"; robos = ATTACKING TRANSITION capturadas):
+
+  | SWITCH_FRAMES | poss | interrup. < 3 s | robos | público spellF1 · poss |
+  |---|---|---|---|---|
+  | 10 (v3.1, sin pre) | 381 | 73 | 24/24 | 0.463 · 21 |
+  | 15 | 308 | 43 | 23/24 | 0.463 · 21 |
+  | **20** | 260 | 21 | 22/24 | 0.471 · 17 |
+  | 25 | 242 | 12 | 21/24 | 0.513 · 15 |
+  | 30 | 220 | 6 | 20/24 | 0.341 · 10 |
+
+  Elegimos 20 y no 25: 25 pierde otro robo, su spellF1 público es ruido y está pegado al
+  precipicio de la ventana pública (25 → 30: de 15 a 10 posesiones). La regla "pre" quita
+  10–25 posesiones falsas sin perder robos ni cambiar la ventana pública.
+- **Resultado**: partido 381 → 260 posesiones, 0 de < 1 s; ventana pública 17 posesiones (las
+  reales), spellF1 0.463 → 0.471, macroF1 0.775 → 0.792.
+- **Pendiente**: las posesiones < 3 s que quedan siguen cayendo ~70% en fase del rival (¿falsas,
+  o las fases llegan tarde a los robos?). Idea: confirmar el cambio con un pase completado.
