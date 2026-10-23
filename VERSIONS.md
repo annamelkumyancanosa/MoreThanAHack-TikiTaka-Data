@@ -273,3 +273,32 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
 - **Resultado**: 0 frames `X` en zona puntuada; idéntico frame a frame a v3.5 rellenada como el
   scorer, así que la puntuación no cambia (pública 0.8336 / 0.5429). Cambia el CSV (md5), no el
   resultado.
+
+### v3.7 (probada y descartada) — balón invisible
+- **Motivo**: punto 3 de la s4. El balón no se ve ~43 de los 104 min puntuados (huecos 5–10 s:
+  6 min, 56% D; 10–30 s: 17 min, 83% D; > 30 s: 19 min, 95% D). La ventana pública casi no tiene
+  balón invisible y no sirve para decidir.
+- **El Smart Tagging no sirve aquí**: es automático (DATA.md) y sin balón casi no marca fases (la
+  cobertura de fase cae del 60% con balón a 12–35% sin él). Además, en el GT público los parones
+  caen en fase ofensiva un **37%** y el juego un 55%: "D en fase" es una señal débil en general.
+- **Validación nueva** (`python notebooks/simulate_hidden_ball.py`): escondemos el balón en
+  ventanas de 10 y 20 s dentro de tramos visibles y comparamos con nuestra predicción con balón.
+  v3.6: **juego → D 13% (10 s) / 22% (20 s)**, parón → vivo 2%, equipo (ambos vivos) 84% / 78%.
+  Sesgo claro: sin balón, la circulación lenta se marca D.
+- **Probado**:
+  - Umbral de velocidad más bajo solo con el balón oculto (`HIDDEN_DEAD_SPEED_MS`): 1.3 → juego→D
+    5% / 11% pero parón→vivo **28%**; 1.2 → 4–6% / 38%; 1.0 → 1–2% / 74%. Pública: 1.3 igual
+    (0.543), 1.2 0.514, 1.0 0.459.
+  - "Varios jugadores corriendo (> 2 m/s) = juego" con el balón oculto: ≥ 6 corredores → juego→D
+    10% / 18%, parón→vivo 7–8%; ≥ 4 → 2–4% / 10–12% y parón→vivo 18–25%. Pública 0.543 en todas.
+  - Frame a frame (vivo/muerto sin balón, referencia = predicción con balón): mediana actual F1
+    0.777; mejor alternativa (nº de jugadores > 2 m/s) 0.818. Poca separación.
+- **Por qué se descarta**: todas las variantes cambian "juego → D" por "parón → vivo" casi uno a
+  uno (umbral 1.3: −0.08–0.11 por frame de juego, +0.26 por frame de parón; solo compensa si en los
+  huecos reales hay < ~28% de parón). La simulación sale de tramos visibles, que son ~90% juego; en
+  los huecos reales el balón suele faltar por un parón (fuera de plano, en manos del que saca) y
+  predecimos 85% D con jugadores a 1.0–1.2 m/s. Sin una señal mejor que la velocidad de los
+  jugadores, cualquier cambio es una apuesta sobre cuánto parón hay en los huecos.
+- **Pendiente**: (a) una señal sin balón que sí separe (¿colocación de jugadores en un saque:
+  barrera, jugadores parados en el área, uno junto a la banda?); (b) el equipo con el balón
+  oculto (78–84% en la simulación): la posesión se congela y los cambios llegan tarde.
