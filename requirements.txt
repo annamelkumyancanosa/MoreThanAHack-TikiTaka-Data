@@ -6,5 +6,8 @@
 #
 # Optional tooling -- the ATD loader and anything that opens the video -- lives in
 # requirements-starter.txt.
-numpy
-pandas
+#
+# TikiTaka-Data: versions pinned so the submission file regenerates byte for byte
+# (tested with Python 3.10.12). Our pipeline (run.py, src/) needs nothing else.
+numpy==2.2.6
+pandas==2.3.3

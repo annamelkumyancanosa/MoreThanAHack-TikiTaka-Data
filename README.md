@@ -39,7 +39,29 @@ pip install -r requirements.txt
 3. Validate a file before submitting:
    `python evaluation/validate_submission.py submissions/<team_name>.csv`
 
+## Reproducing the submission
+
+Tested with Python 3.10.12 and the pinned `requirements.txt`. Needs these match files in
+`data/tactical/` (not in the repository):
+
+```
+data/tactical/BAR-ATH_tactical_atd.txt
+data/tactical/BAR-ATH_tactical_atd.xml
+data/tactical/BAR-ATH_tactical_smart_tagging.xml
+```
+
+```bash
+python run.py --name TikiTaka-Data
+```
+
+This writes `evaluation/results/TikiTaka-Data.csv`, validates it with the official
+`validate_submission.py` and scores it on the public window. The first run parses the tracking
+file (a few minutes) and caches it as `data/tactical/BAR-ATH_tactical_atd.npz`; the cache does not
+change the output.
+
+The model is in `src/possession.py`; every version and why it changed is in `VERSIONS.md`.
+
 ## Deadlines
 
 - Submission: **November 17, 2026**
-- Deliverables: possession CSV, public code repository, short technical document
+- Deliverables: possession CSV, public code repository, short technical document
