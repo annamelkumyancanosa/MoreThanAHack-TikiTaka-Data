@@ -30,6 +30,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3.2 | `7a289de` | 0.7916 | 0.4706 | **17** | 0.938 | 260 · 45% |
 | v3.4 | `f5cd2e1` | 0.8223 | 0.5000 | 15 | 0.948 | 246 · 46% |
 | v3.5 | `6f1d6b6` | **0.8336** | **0.5429** | 11 | 0.948 | 200 · 46% |
+| v3.6 | — | 0.8336 | 0.5429 | 11 | 0.948 | 200 · 47% |
 
 Partido completo vs Smart Tagging:
 
@@ -45,6 +46,7 @@ Partido completo vs Smart Tagging:
 | v3.2 | **84.6**† | 19.7 | 45.9 | 96.0* |
 | v3.4 | 84.5 | 20.2 | 46.2 | 96.0* |
 | v3.5 | 86.5 | 20.2 | 46.2 | 96.0* |
+| v3.6 | 86.5 | 20.2 | 47.0 | 96.0* |
 
 \* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
@@ -257,3 +259,17 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
   (H0.8, H1.3, A2.8…) siguen sin salir (no salían antes; un toque sin control no es posesión según
   la definición oficial). El robo perdido es una interrupción sin pases que cae un 58% en fase del
   rival: ambigua.
+
+### v3.6 — ninguna X en zona puntuada
+- **Motivo**: hipótesis 6 de CONTEXT.md: frames `X` en zona puntuada que el scorer rellena con la
+  etiqueta anterior. Mejor decidirlos nosotros y no depender de esa regla.
+- **Diagnóstico**: en v3.5 quedan 8 tramos `X` (1142 frames, 46 s): tramos vivos en los que nadie
+  llega a controlar el balón (`assign_possession` no tiene con qué empezar). Los 8 van entre dos D
+  (7) o entre un D y el final de una parte (1), con el balón invisible el 100% del tiempo, jugadores
+  a 1.5 m/s de mediana, 9% en fase ofensiva (parones reales 13–19%, juego 62%) y ningún set piece
+  cerca → son el mismo parón con el balón perdido de vista.
+- **Cambio**: en `predict`, lo que queda `X` tras asignar posesión y parones pasa a D (fuera de la
+  zona puntuada sigue siendo `X`).
+- **Resultado**: 0 frames `X` en zona puntuada; idéntico frame a frame a v3.5 rellenada como el
+  scorer, así que la puntuación no cambia (pública 0.8336 / 0.5429). Cambia el CSV (md5), no el
+  resultado.

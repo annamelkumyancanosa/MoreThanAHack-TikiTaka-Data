@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.5.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.6.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -27,6 +27,7 @@ Historial (detalle y resultados en VERSIONS.md):
   v3.4 merge_quiet_gaps: une parones confirmados si en el hueco nadie supera DEAD_SPEED_MS.
   v3.5 drop_passless_interruptions: una interrupción < 5 s sin control demostrado (1 pase real o
        2 s de un mismo jugador) vuelve al rival.
+  v3.6 ninguna X en zona puntuada: un tramo vivo sin ningún control es D (misma puntuación).
 """
 
 import numpy as np
@@ -383,6 +384,11 @@ def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
     labels[poss == HOME] = "H"
     labels[poss == AWAY] = "A"
     labels[dead] = "D"
+    # v3.6: un tramo vivo sin ningún control (poss NOBODY) se quedaba X. En el partido son 8 tramos
+    # (46 s), todos entre dos D (o D y final de parte), con el balón invisible todo el rato, jugadores
+    # a 1.5 m/s y 9% en fase ofensiva (como los parones): es el mismo parón. El scorer ya rellenaba
+    # esas X con la D anterior; lo hacemos explícito para no depender de esa regla.
+    labels[labels == "X"] = "D"
 
     if second_half_kickoff is not None:
         half2_start = [b for b in graded_blocks if b[0] == 2][0][1]
