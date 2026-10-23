@@ -1,8 +1,9 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.2.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.4.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
-     del campo. No se sale del parón sin una reanudación clara (los jugadores aceleran).
+     del campo. No se sale del parón sin una reanudación clara (los jugadores aceleran): si entre
+     dos parones nadie acelera, es el mismo parón.
   2. Control: un jugador "tiene" el balón si está pegado a él (< CONTROL_DIST_M).
   3. La posesión solo cambia si el rival controla el balón de forma sostenida
      (SWITCH_FRAMES frames). Toques sueltos, rebotes y balones divididos no la cambian.
@@ -20,6 +21,8 @@ Historial (detalle y resultados en VERSIONS.md):
   v3   restart_teams: si un set piece (Smart Tagging) cae dentro de un parón, su equipo reanuda.
   v3.1 merge_dead_gaps solo une huecos <= 3 s: los de 5-8 s eran juego en el partido completo.
   v3.2 SWITCH_FRAMES 10 -> 20 (un toque no es posesión) y absorb_pre_dead.
+  v3.3 (descartada) rellenar parones cortos H-D-H sin set piece. No está en el código.
+  v3.4 merge_quiet_gaps: une parones confirmados si en el hueco nadie supera DEAD_SPEED_MS.
 """
 
 import numpy as np
@@ -60,6 +63,13 @@ BALL_ACTIVE_WINDOW = 2 * FPS
 # Sin unión salen 14 posesiones falsas < 3 s entre dos D; con 3 s, 1.
 MAX_DEAD_MERGE_FRAMES = 3 * FPS
 RESTART_SPEED_MS = DEAD_SPEED_MS
+# v3.4: un hueco vivo entre dos parones ya confirmados (tras quitar los D cortos), de cualquier
+# longitud, es parte del mismo parón si los jugadores no llegan nunca a QUIET_GAP_SPEED_MS
+# (máximo de players_speed): es el balón recolocándose, no una reanudación. En el partido, los
+# huecos sin fase ofensiva del Smart Tagging tienen un máximo mediano de 1.6 m/s y los que están en
+# fase, 3.7 m/s; en la ventana pública, parones 1.4-2.7 y juego >= 3.1. Con 1.5 los frames que pasan
+# a D caen en fase ofensiva un 20% (como los parones reales); con 1.7, un 31% (entra juego).
+QUIET_GAP_SPEED_MS = DEAD_SPEED_MS
 
 # --- Control del balón ---
 # Distancia máxima (m) jugador-balón para considerar que lo controla.
@@ -160,7 +170,8 @@ def detect_dead(trk):
     for start, end in _runs(dead):
         if end - start < MIN_DEAD_FRAMES:
             dead[start:end] = False
-    return dead
+    # 3) v3.4: unir parones confirmados separados por un hueco donde nadie acelera.
+    return merge_quiet_gaps(dead, speed)
 
 
 def merge_dead_gaps(dead, speed):
@@ -176,6 +187,18 @@ def merge_dead_gaps(dead, speed):
         # v2.2: máximo en lugar de mediana. Si en algún momento del hueco el equipo alcanza ritmo
         # de juego, hubo reanudación y no unimos (la v2.1 con mediana se comió una posesión real).
         if np.max(speed[start:end]) < RESTART_SPEED_MS:
+            dead[start:end] = True
+    return dead
+
+
+def merge_quiet_gaps(dead, speed):
+    """Convierte en D los huecos vivos entre dos D (sin límite de longitud) si el máximo de
+    `speed` (players_speed) en el hueco no llega a QUIET_GAP_SPEED_MS."""
+    dead = dead.copy()
+    for start, end in _runs(~dead):
+        if start == 0 or end == len(dead):
+            continue
+        if np.max(speed[start:end]) < QUIET_GAP_SPEED_MS:
             dead[start:end] = True
     return dead
 

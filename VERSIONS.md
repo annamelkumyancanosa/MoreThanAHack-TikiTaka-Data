@@ -28,6 +28,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3 | `0c3e5dd` | 0.8057 | 0.4889 | 19 | 0.948 | 364 · 47% |
 | v3.1 | `000ebec` | 0.7751 | 0.4632 | 21 | 0.938 | 381 · 45% |
 | v3.2 | `7a289de` | 0.7916 | 0.4706 | **17** | 0.938 | 260 · 45% |
+| v3.4 | — | **0.8223** | **0.5000** | 15 | 0.948 | 246 · 46% |
 
 Partido completo vs Smart Tagging:
 
@@ -41,6 +42,7 @@ Partido completo vs Smart Tagging:
 | v3 | 80.2 | 22.1 | 48.1 | 88.0* |
 | v3.1 | 80.5 | 19.7 | 45.9 | 96.0* |
 | v3.2 | **84.6**† | 19.7 | 45.9 | 96.0* |
+| v3.4 | 84.5 | 20.2 | 46.2 | 96.0* |
 
 \* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
@@ -171,3 +173,34 @@ con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24.
     rompería ~3 faltas reales. Ganancia neta ~4 posesiones de ~260, sin forma de separar los casos.
 - **Decisión**: no se implementa. Pista abierta: parones cortos de la 1ª parte (min 10–20) con
   balón visible.
+
+### v3.4 — si entre dos parones nadie acelera, es el mismo parón
+- **Motivo**: fallo más caro de v3.2 en la ventana pública: los parones D20.4 y D14.5 salen
+  partidos por posesiones falsas (H3.3, H5.5) mientras el balón se recoloca. `merge_dead_gaps`
+  solo une huecos ≤ 3 s y actúa antes de quitar los D cortos.
+- **Diagnóstico** (`python notebooks/diagnose_dead_gaps.py`): 132 huecos vivos entre dos D en el
+  partido. Agrupados por cobertura de fase ofensiva del Smart Tagging, el máximo de
+  `players_speed` en el hueco separa bien: sin fase 1.6 m/s de mediana (29 huecos), con fase
+  ≥ 50% 3.7 m/s (84). Ventana pública: parones 1.4–2.7, juego ≥ 3.1. Los pases separan peor (al
+  recolocar el balón también se golpea: 30 frames rápidos de mediana en huecos sin fase).
+- **Cambio**: `merge_quiet_gaps`, al final de `detect_dead`: un hueco entre dos parones ya
+  confirmados, de cualquier longitud, pasa a D si el máximo de `players_speed` no llega a
+  `QUIET_GAP_SPEED_MS` (= `DEAD_SPEED_MS`, 1.5 m/s; ningún número nuevo).
+- **Barrido** del umbral (0 = v3.2):
+
+  | umbral | pública spellF1 | partido poss · tramos D | D fase | frames nuevos D en fase | reanuda |
+  |---|---|---|---|---|---|
+  | 0 | 0.471 | 260 · 126 | 19.7 | — | 96.0 |
+  | **1.5** | **0.500** | 246 · 113 | 20.2 | **20%** (66 s) | 96.0 |
+  | 1.7 | 0.500 | 240 · 108 | 20.9 | 31% (102 s) | 96.0 |
+  | 1.9 | 0.500 | 236 · 105 | 22.0 | 44% (138 s) | 96.0 |
+  | 2.1 | 0.500 | 230 · 102 | 23.9 | — | 88.0 |
+
+  Los frames que pasan a D con 1.5 caen en fase ofensiva un 20%, como los parones reales
+  (13–19%); entre 1.5 y 1.7 los añadidos caen un ~52%, como el juego (62%). La ventana pública
+  no distingue umbrales. Robos sin cambios en todo el barrido.
+- **Resultado**: ventana pública spellF1 0.471 → 0.500, macroF1 0.792 → 0.822, D recall
+  0.58 → 0.71, posesiones falsas 19 → 15. El D20.4 sale entero (D17.4). Coste: la H3.5 real
+  antes del D18.3 queda dentro del parón (antes salía H6.1, desplazada). Partido: 260 → 246
+  posesiones, tramos D 126 → 113 (−7 en cada parte).
+- **Pendiente**: el D14.5 sigue partido por H5.5 (máximo 2.7 m/s, por encima del umbral).
