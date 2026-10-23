@@ -32,7 +32,8 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3.5 | `6f1d6b6` | **0.8336** | **0.5429** | 11 | 0.948 | 200 · 46% |
 | v3.6 | `ff08737` | 0.8336 | 0.5429 | 11 | 0.948 | 200 · 47% |
 | v3.8 | `14b9be2` | 0.8593 | 0.5630 | 10 | 0.959 | 196 · 47% |
-| v3.9 | `804a79f` | **0.8717** | **0.5926** | 10 | 0.964 | 197 · 47% |
+| v3.9 | `804a79f` | 0.8717 | 0.5926 | 10 | 0.964 | 197 · 47% |
+| v3.9.1 | — | **0.8724** | **0.5926** | 10 | 0.964 | 197 · 47% |
 
 Partido completo vs Smart Tagging:
 
@@ -359,3 +360,17 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
 - **Resultado**: pública **0.8717 / 0.5926** / 10 posesiones, vivo/muerto F1 0.964, equipo 91.7%.
   Partido: 197 posesiones, 110 tramos D; robos 19/24 por la ventana de ±8 s (ver nota †); D en fase
   ofensiva 20.8 → 23.0% porque el parón dura 1 s más (las fases automáticas empiezan antes).
+
+### v3.9.1 — saques de cada parte sin retraso, y revisión de v3.9
+- **Fallo**: `delay_transitions` se aplicaba antes de recortar la zona puntuada y empujaba 5 frames
+  del D previo al saque inicial dentro de la 1ª parte (`D0.2 A12.3…`). Los saques de cada parte son
+  exactos: ahora el retraso se aplica por bloque puntuado y antes de forzar el D previo al saque de
+  la 2ª parte. Cambian 4 frames; pública 0.8724 / 0.5926, partido igual.
+- **¿Retrasar también el inicio de los parones?** No. Con el balón fuera del campo, nuestro D empieza
+  3 frames (mediana; p25 1, p75 14) tras el cruce de línea (26 parones del partido). En la ventana
+  pública los inicios no tienen un sesgo constante (+53, −208, 0 frames): desplazarlos ±25/50 no
+  mejora (macroF1 0.865–0.868 frente a 0.872).
+- **`merge_dead_gaps` / `absorb_pre_dead` con las etiquetas desplazadas**: sin cambios. El retraso es
+  posterior a todas las reglas, que siguen decidiendo con los cambios fechados al primer contacto
+  (decisiones idénticas a v3.8); en el CSV una posesión de 3–4 s antes de un parón sale 1.2 s más
+  corta. 0 posesiones < 1 s.

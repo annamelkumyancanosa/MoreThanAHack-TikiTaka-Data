@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.9.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.9.1.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -36,6 +36,7 @@ Historial (detalle y resultados en VERSIONS.md):
   v3.8 absorb_placing_gaps: un tramo vivo < 10 s entre dos parones, de un solo equipo, sin control
        demostrado y del equipo que reanuda después, es parte del parón.
   v3.9 delay_transitions: cambios H<->A 30 frames más tarde (control ganado) y reanudaciones 25.
+  v3.9.1 el retraso se aplica por parte y no a los saques de cada parte (datos exactos).
 """
 
 import numpy as np
@@ -465,7 +466,11 @@ def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
     # a 1.5 m/s y 9% en fase ofensiva (como los parones): es el mismo parón. El scorer ya rellenaba
     # esas X con la D anterior; lo hacemos explícito para no depender de esa regla.
     labels[labels == "X"] = "D"
-    labels = delay_transitions(labels)  # v3.9
+    # v3.9: retraso de las transiciones dentro de cada parte. v3.9.1: por bloque puntuado y antes de
+    # forzar el D previo al saque de la 2ª parte: los saques de cada parte son exactos y no se retrasan
+    # (antes se colaban 5 frames de D en el saque inicial).
+    for _, first, last in graded_blocks:
+        labels[first:last + 1] = delay_transitions(labels[first:last + 1])
 
     if second_half_kickoff is not None:
         half2_start = [b for b in graded_blocks if b[0] == 2][0][1]
