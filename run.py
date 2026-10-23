@@ -66,7 +66,7 @@ def full_match_check(labels, blocks):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", default="tikitaka_v3_6")
+    parser.add_argument("--name", default="tikitaka_v3_8")
     args = parser.parse_args()
 
     blocks = half_video_blocks("BAR-ATH")

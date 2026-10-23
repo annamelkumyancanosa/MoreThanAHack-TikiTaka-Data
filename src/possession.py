@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.6.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.8.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -12,6 +12,8 @@ Idea general (en lenguaje de fútbol):
   6. Una posesión corta justo antes de un parón es el que recoge el balón: no cuenta.
   7. Una interrupción corta (A-H-A) sin control demostrado (ni pases ni un jugador que conduzca)
      es un toque: no cuenta.
+  8. Un tramo vivo corto entre dos parones, sin control demostrado y del equipo que saca después,
+     es colocar el balón: parte del parón.
 
 Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
 
@@ -28,6 +30,9 @@ Historial (detalle y resultados en VERSIONS.md):
   v3.5 drop_passless_interruptions: una interrupción < 5 s sin control demostrado (1 pase real o
        2 s de un mismo jugador) vuelve al rival.
   v3.6 ninguna X en zona puntuada: un tramo vivo sin ningún control es D (misma puntuación).
+  v3.7 (descartada) balón invisible: umbral más bajo o "varios corriendo". No está en el código.
+  v3.8 absorb_placing_gaps: un tramo vivo < 10 s entre dos parones, de un solo equipo, sin control
+       demostrado y del equipo que reanuda después, es parte del parón.
 """
 
 import numpy as np
@@ -116,6 +121,12 @@ MIN_INTERRUPTION_CTRL_FRAMES = 2 * FPS
 # Solo se revisan interrupciones de menos de INTERRUPTION_MAX_FRAMES: las largas sin pase que van
 # con un robo (ATTACKING TRANSITION) caen en fase propia y son reales.
 INTERRUPTION_MAX_FRAMES = 5 * FPS
+# v3.8: un tramo vivo entre dos parones de menos de PLACING_MAX_FRAMES, de un solo equipo, sin
+# control demostrado (mismo criterio que v3.5) y de ese mismo equipo que reanuda tras el segundo
+# parón, es quien coloca el balón para sacar: parte del parón. En el partido son 4 huecos de 3-10 s
+# (50% en fase ofensiva, como los parones); si el hueco es del otro equipo cae en su fase un 100%
+# (es juego) y no se toca.
+PLACING_MAX_FRAMES = 10 * FPS
 
 # --- Reanudación (v3) ---
 # Un set piece cuenta para un parón si su inicio cae dentro del D o hasta RESTART_TAG_SLACK
@@ -290,19 +301,46 @@ def drop_passless_interruptions(poss, dead, slot, team, ball):
             if (owner == NOBODY or before != after or before == NOBODY or before == owner
                     or b - a >= INTERRUPTION_MAX_FRAMES):
                 continue
-            s = slot[start + a:start + b]
-            frames = start + a + np.flatnonzero(s != NOBODY)
-            frames = frames[team[slot[frames]] == owner]
-            own = slot[frames]
-            # Cambio de jugador con el balón viajando >= PASS_MIN_M entre el último frame de uno y
-            # el primero del siguiente.
-            hand = np.flatnonzero(own[1:] != own[:-1])
-            travel = np.hypot(*(ball[frames[hand + 1], :2] - ball[frames[hand], :2]).T)
-            passes = np.sum(travel >= PASS_MIN_M)
-            longest = np.bincount(own).max() if len(own) else 0  # control del jugador que más lo tiene
-            if passes < MIN_INTERRUPTION_PASSES and longest < MIN_INTERRUPTION_CTRL_FRAMES:
+            if not _shows_control(start + a, start + b, owner, slot, team, ball):
                 poss[start + a:start + b] = before
     return poss
+
+
+def _shows_control(start, end, owner, slot, team, ball):
+    """True si en [start, end) el equipo `owner` completa MIN_INTERRUPTION_PASSES pases reales o
+    un mismo jugador suyo controla el balón MIN_INTERRUPTION_CTRL_FRAMES (ver v3.5)."""
+    s = slot[start:end]
+    frames = start + np.flatnonzero(s != NOBODY)
+    frames = frames[team[slot[frames]] == owner]
+    own = slot[frames]
+    # Cambio de jugador con el balón viajando >= PASS_MIN_M entre el último frame de uno y el
+    # primero del siguiente.
+    hand = np.flatnonzero(own[1:] != own[:-1])
+    travel = np.hypot(*(ball[frames[hand + 1], :2] - ball[frames[hand], :2]).T)
+    passes = np.sum(travel >= PASS_MIN_M)
+    longest = np.bincount(own).max() if len(own) else 0  # control del jugador que más lo tiene
+    return passes >= MIN_INTERRUPTION_PASSES or longest >= MIN_INTERRUPTION_CTRL_FRAMES
+
+
+def absorb_placing_gaps(dead, poss, slot, team, ball):
+    """v3.8: devuelve la máscara de parón con los huecos de "colocar el balón" convertidos en D.
+
+    Hueco = tramo vivo con D a ambos lados, de menos de PLACING_MAX_FRAMES y con un solo equipo
+    en `poss`; se absorbe si ese equipo no demuestra control (_shows_control) y es el mismo que
+    tiene el balón al reanudar tras el segundo parón.
+    """
+    dead = dead.copy()
+    for start, end in _runs(~dead):
+        if start == 0 or end == len(dead) or end - start >= PLACING_MAX_FRAMES:
+            continue
+        owners = np.unique(poss[start:end])
+        owners = owners[owners != NOBODY]
+        after = np.flatnonzero(~dead[end:])
+        if len(owners) != 1 or len(after) == 0 or poss[end + after[0]] != owners[0]:
+            continue
+        if not _shows_control(start, end, owners[0], slot, team, ball):
+            dead[start:end] = True
+    return dead
 
 
 def restart_teams(dead, restarts):
@@ -379,6 +417,7 @@ def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
     poss = assign_possession(control, dead, restart_teams(dead, restarts or []))
     poss = absorb_pre_dead(poss, dead)  # v3.2
     poss = drop_passless_interruptions(poss, dead, slot, trk["team"], trk["ball"])  # v3.5
+    dead = absorb_placing_gaps(dead, poss, slot, trk["team"], trk["ball"])  # v3.8
 
     labels = np.full(len(poss), "X", dtype="<U1")
     labels[poss == HOME] = "H"

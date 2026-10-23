@@ -31,6 +31,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3.4 | `f5cd2e1` | 0.8223 | 0.5000 | 15 | 0.948 | 246 · 46% |
 | v3.5 | `6f1d6b6` | **0.8336** | **0.5429** | 11 | 0.948 | 200 · 46% |
 | v3.6 | `ff08737` | 0.8336 | 0.5429 | 11 | 0.948 | 200 · 47% |
+| v3.8 | — | **0.8593** | **0.5630** | 10 | 0.959 | 196 · 47% |
 
 Partido completo vs Smart Tagging:
 
@@ -47,6 +48,7 @@ Partido completo vs Smart Tagging:
 | v3.4 | 84.5 | 20.2 | 46.2 | 96.0* |
 | v3.5 | 86.5 | 20.2 | 46.2 | 96.0* |
 | v3.6 | 86.5 | 20.2 | 47.0 | 96.0* |
+| v3.8 | 87.1 | 20.8 | 47.4 | 96.0* |
 
 \* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
@@ -302,3 +304,30 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
 - **Pendiente**: (a) una señal sin balón que sí separe (¿colocación de jugadores en un saque:
   barrera, jugadores parados en el área, uno junto a la banda?); (b) el equipo con el balón
   oculto (78–84% en la simulación): la posesión se congela y los cambios llegan tarde.
+
+### v3.8 — colocar el balón entre dos parones
+- **Motivo**: (d) de la s4: el D14.5 público sale partido (`D3.7 H5.5 D3.4 H13.7`); la H5.5 es del
+  mismo equipo que saca después y los jugadores llegan a 2.7 m/s, así que `merge_quiet_gaps` (v3.4)
+  no la une.
+- **Diagnóstico** (partido completo): 38 tramos vivos ≤ 15 s entre dos parones. De un solo equipo,
+  3–10 s y sin control demostrado (criterio de v3.5: ni un pase real ≥ 5 m ni 2 s de un mismo
+  jugador): si es el equipo que reanuda después, 4 huecos con 50% en fase ofensiva (los parones del
+  GT público, 37%; el juego, 55%) y conducción máxima 0.5–0.8 s; si es el otro equipo, 100% en su
+  propia fase (juego real) → no se tocan. Con pases reales también caen en fase propia (97%).
+- **Cambio**: `absorb_placing_gaps` tras `drop_passless_interruptions`: el hueco pasa a D. La
+  comprobación de pases se saca a `_shows_control`, compartida con v3.5 (salida idéntica, md5).
+- **Resultado**: pública **0.8593 / 0.5630** / 10 posesiones (D14.5 → D12.6 entero). Partido: 4
+  parones unidos (113 → 109 tramos D), 196 posesiones, robos 21/24 (igual), reanuda 96% (igual).
+  Ojo: evidencia fina (4 casos en el partido); se acepta porque aplica el mismo principio que v3.5.
+- **(b) de la s4, equipo con balón oculto: descartado por falta de casos.** La anchura de los equipos
+  (std de y) separa quién tiene el balón sin verlo (AUC 0.89; logística con 8 rasgos de colocación,
+  84–85% validando entre partes), y en la simulación de v3.7 casi todo el error de equipo está en
+  ventanas con un cambio dentro (44% de error frente a 2–4%). Pero en el partido real solo hay 6.5 min
+  de juego con el balón oculto y **4 casos** con un cambio confirmado justo al reaparecer el balón
+  (0.2 min): el resto del balón oculto lo marcamos D. Fechar el cambio dentro del hueco (punto medio o
+  CUSUM sobre la anchura) mejora la simulación a 20 s (1804 → 1061 frames mal) pero empeora a 10 s.
+- **(a) de la s4, parones sin balón: los parones largos son reales.** Los 22 parones ≥ 40 s (9 de
+  más de 60 s, ~17 min) tienen jugadores a 0.6–1.0 m/s (p90 ~1.3) y ninguna ventana de 5 s con ritmo
+  de juego; casi todos con gol, córner o saque de puerta al lado. Única duda: 1ª parte, último
+  parón (78.6 s, p90 2.9 m/s, 4/15 ventanas activas). El número de parones cuadra con las
+  estadísticas (1ª 55 frente a ~42 reanudaciones, 2ª 57 frente a ~58).
