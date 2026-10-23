@@ -56,7 +56,7 @@ python run.py --name TikiTaka-Data
 
 This writes `evaluation/results/TikiTaka-Data.csv`, validates it with the official
 `validate_submission.py` and scores it on the public window. The first run parses the tracking
-file (a few minutes) and caches it as `data/tactical/BAR-ATH_tactical_atd.npz`; the cache does not
+file (about 10 s) and caches it as `data/tactical/BAR-ATH_tactical_atd.npz`; the cache does not
 change the output.
 
 The model is in `src/possession.py`; every version and why it changed is in `VERSIONS.md`.
