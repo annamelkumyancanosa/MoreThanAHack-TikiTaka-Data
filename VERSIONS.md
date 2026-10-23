@@ -110,3 +110,11 @@ Partido completo vs Smart Tagging:
   dentro de parones, que el spellF1 castiga.
 - **Resultado**: partido: D en fase ofensiva 22.1 → 19.7%, equipo 80.2 → 80.5%, % D 48.1 → 45.9.
   Ventana pública: spellF1 0.489 → 0.463 (ruido, < 0.05; justo donde v2.1/v2.2 se sobreajustaron).
+- **Probado y descartado** (sesión 3): en los saques de banda (sin equipo en el tag), que saque
+  el rival del último en posesión. De 26 saques puntuados, 23 caen dentro de un D nuestro y al
+  reanudar el balón está en la línea (mediana −0.5 m de la banda): quien lo controla primero
+  es el que saca. Contra la fase ofensiva del Smart Tagging en los 10 s siguientes (13 casos con
+  fase): "primero que controla tras el D" (lo actual) coincide 13/13; "rival del último en
+  posesión" 5/13; "rival del último que toca" 6/13 (en el parón alguien recoge el balón y cuenta
+  como toque). Nos quedamos con lo actual: a diferencia de los córners, en un saque de banda no
+  hay rivales pegados al balón.
