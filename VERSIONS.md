@@ -153,3 +153,21 @@ con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24.
   reales), spellF1 0.463 → 0.471, macroF1 0.775 → 0.792.
 - **Pendiente**: las posesiones < 3 s que quedan siguen cayendo ~70% en fase del rival (¿falsas,
   o las fases llegan tarde a los robos?). Idea: confirmar el cambio con un pase completado.
+
+### v3.3 (probada y descartada) — parones cortos en mitad de una posesión
+- **Idea**: 35 parones sin set piece tienen el mismo equipo antes y después (H‑D‑H). 14 de ellos
+  (< 10 s, balón nunca fuera, balón visible ≥ 80%) caen en fase ofensiva de ese equipo un 61%, como
+  el juego vivo (62.7%; parones reales 13–19%). Hipótesis: circulación lenta marcada D, que parte
+  una posesión en dos. Regla propuesta: rellenarlos con ese equipo.
+- **Contra**: una falta sacada rápido también es H‑D‑H, y son dos posesiones (`H H D D H H`), así
+  que unirla por error cuesta lo mismo que partir una real.
+  - Firma en el tracking (balón quieto ≥ 1 s): juego vivo lento 1%, parones reales 19–22%,
+    los 14 sospechosos 21% → se parecen a parones.
+  - Estadísticas públicas (`docs/match_stats.md`, Flashscore/ESPN, solo validación): 37 tiros
+    libres y 37 saques de banda; el Smart Tagging trae 5 y 26. Reanudaciones sin tag esperadas:
+    ~14 en la 1ª parte y ~31 en la 2ª; nuestros parones sin tag: 36 y 33. **La 2ª parte cuadra**
+    (el Athletic hizo 11 faltas); en la 1ª sobran ~22, sobre todo en los minutos 10–20.
+  - De los 14 sospechosos, 10 están en la 1ª parte y 4 en la 2ª: la regla arreglaría ~8 y
+    rompería ~3 faltas reales. Ganancia neta ~4 posesiones de ~260, sin forma de separar los casos.
+- **Decisión**: no se implementa. Pista abierta: parones cortos de la 1ª parte (min 10–20) con
+  balón visible.
