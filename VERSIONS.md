@@ -26,6 +26,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v2.1 | `bb2b6b7` | 0.7868 | 0.4889 | 19 | 0.937 | 356 · 48% |
 | v2.2 | `e0b56c1` | 0.8057 | 0.4889 | 19 | 0.948 | 360 · 47% |
 | v3 | `0c3e5dd` | 0.8057 | 0.4889 | 19 | 0.948 | 364 · 47% |
+| v3.1 | `PENDIENTE` | 0.7751 | 0.4632 | 21 | 0.938 | 381 · 45% |
 
 Partido completo vs Smart Tagging:
 
@@ -37,8 +38,9 @@ Partido completo vs Smart Tagging:
 | v2.1 | 79.7 | 24.4 | 50.0 | 56.0 |
 | v2.2 | 79.8 | 22.8 | 48.7 | 56.0 |
 | v3 | 80.2 | 22.1 | 48.1 | 88.0* |
+| v3.1 | **80.5** | 19.7 | 45.9 | 96.0* |
 
-\* circular: v3 usa esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
+\* circular: v3 y v3.1 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
 ## Detalle
 
@@ -88,3 +90,23 @@ Partido completo vs Smart Tagging:
   acierto de equipo (79.8 → 77.9%): se recuperan frames con balón invisible y equipo congelado.
 - **Pendiente**: los saques de banda (26) no traen equipo; v2 sigue teniendo menos D que v2.1/v2.2
   en el partido (posible sobreajuste de la unión de parones).
+
+### v3.1 — la unión de parones solo para huecos cortos
+- **Motivo**: v2.1/v2.2 subieron la ventana pública pero en el partido completo añadían D sin
+  ganar equipo. ¿Sobra la unión? Se probó `MAX_DEAD_MERGE_FRAMES` = 0 / 2.5 / 3 / 4 / 8 s:
+
+  | hueco máx. | poss | % D | equipo | D fase | poss < 3 s entre dos D | spellF1 público |
+  |---|---|---|---|---|---|---|
+  | 0 s (≈ v2) | 396 | 44.3 | 80.4 | 18.4 | 14 | 0.462 |
+  | **3 s** | 381 | 45.9 | 80.5 | 19.7 | 1 | 0.463 |
+  | 4 s | 374 | 47.3 | 80.4 | 21.3 | 1 | 0.476 |
+  | 8 s (v3) | 364 | 48.1 | 80.2 | 22.1 | 1 | 0.489 |
+
+- Huecos que v3 unía, según el Smart Tagging (referencia: D en ambas 17.5% en fase ofensiva,
+  vivo en ambas 62.7%): < 3 s (21 huecos) 12.8% en fase y 34% junto a set piece → parón;
+  3–5 s (20) 44% → dudoso; 5–8 s (9) 48%, balón visible 96%, 5% junto a set piece → juego.
+  En la ventana pública, los frames que unía v3 eran 66% D en el GT.
+- **Cambio**: `MAX_DEAD_MERGE_FRAMES` 8 s → 3 s. Sin unión no vale: 14 posesiones falsas
+  dentro de parones, que el spellF1 castiga.
+- **Resultado**: partido: D en fase ofensiva 22.1 → 19.7%, equipo 80.2 → 80.5%, % D 48.1 → 45.9.
+  Ventana pública: spellF1 0.489 → 0.463 (ruido, < 0.05; justo donde v2.1/v2.2 se sobreajustaron).

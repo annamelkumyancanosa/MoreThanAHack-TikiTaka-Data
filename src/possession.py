@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.1.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -17,6 +17,7 @@ Historial (detalle y resultados en VERSIONS.md):
   v2.1 merge_dead_gaps: une trozos de un mismo parón si los jugadores siguen lentos (mediana).
   v2.2 merge_dead_gaps usa el máximo: si alguien alcanza ritmo de juego, hubo reanudación.
   v3   restart_teams: si un set piece (Smart Tagging) cae dentro de un parón, su equipo reanuda.
+  v3.1 merge_dead_gaps solo une huecos <= 3 s: los de 5-8 s eran juego en el partido completo.
 """
 
 import numpy as np
@@ -52,7 +53,10 @@ BALL_ACTIVE_WINDOW = 2 * FPS
 # el D en trozos. Un hueco "vivo" entre dos tramos D de hasta MAX_DEAD_MERGE_FRAMES se considera
 # parte del mismo parón si los jugadores siguen lentos en él (mediana de players_speed por debajo
 # de RESTART_SPEED_MS): tras una reanudación real, el equipo se activa.
-MAX_DEAD_MERGE_FRAMES = 8 * FPS
+# v3.1: 8 s -> 3 s. En el partido completo, los huecos unidos < 3 s parecen parón (12.8% en fase
+# ofensiva del Smart Tagging, como los D) y los de 3-8 s parecen juego (44-48%, balón visible).
+# Sin unión salen 14 posesiones falsas < 3 s entre dos D; con 3 s, 1.
+MAX_DEAD_MERGE_FRAMES = 3 * FPS
 RESTART_SPEED_MS = DEAD_SPEED_MS
 
 # --- Control del balón ---
