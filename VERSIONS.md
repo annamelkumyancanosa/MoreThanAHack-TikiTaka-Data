@@ -407,3 +407,39 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
   31%); en los frames que ya eran vivos cambia el equipo en 795 (coincidencia 87.8 → 87.2%).
 - **Pendiente**: el otro lado de la señal, tramos vivos con la TV fuera > 10 s (vivo con TV fuera
   20.6% frente al 47% del GT: aquí no parece que sobre juego); el equipo en los tramos recuperados.
+
+### v4.1 (probada y descartada) — balón del broadcast donde falta el del táctico
+- **Motivo**: propuesta (3) de la s5. Con la TV en directo, el broadcast ve el balón en 3.7 min
+  de los que el táctico no lo ve (el 29% de los huecos de 5–10 s; ≤ 6% de los huecos largos).
+- **Calidad**: con los dos visibles y la TV en directo (45 min), el balón del broadcast queda a
+  0.8 m del táctico (mediana; p90 5.5 m), su velocidad frame a frame es igual de suave (p50 5.9
+  frente a 5.7 m/s) y el equipo del jugador más cercano coincide con la fase ofensiva igual que con
+  el táctico (81% frente a 79%). Los rellenos son tramos cortos (99, mediana 0.8 s).
+- **Probado**: rellenar el balón del táctico con el del broadcast (velocidad anulada en el salto
+  entre fuentes). Los tramos D no cambian (79). Salen 197 posesiones (+10), equipo 85.8 → 84.7%,
+  reanuda 96.2 → 92.3%, robos 19 → 20/24; pública igual. Los frames que cambian de equipo (1 min)
+  caen en fase **del equipo antiguo** un 88–96%: los vistazos sueltos al balón dentro de un hueco
+  crean cambios falsos donde la posesión congelada acertaba.
+- **Conclusión**: descartada. El balón del broadcast es bueno por frame, pero aparece sobre todo
+  en duelos y balones divididos dentro de huecos largos, donde no aporta posesión controlada.
+
+### v4.2 (probada y descartada) — modelo probabilístico (Viterbi)
+- **Motivo**: propuesta (4) de la s5: sustituir reglas por una decodificación globalmente óptima.
+  Probado en dos piezas, cada una contra v4.0 con el resto del pipeline igual.
+- **(a) Posesión H/A**: Viterbi de 2 estados por tramo vivo; evidencia por frame = log-odds del
+  equipo del más cercano (0.91 a < 1 m, 0.83 a 1–1.5 m), coste por cambio S. Barrido S 20–120,
+  con y sin las reglas v3.2/v3.5 detrás. A igual nº de posesiones siempre pierde: S 50 → 182 poss,
+  equipo 84.4% (v4.0: 187, 85.8%), robos 19/24, pública 0.5517 (S ≤ 50) o 0.365 (S ≥ 60).
+  Al principio "reanuda" caía a 81–88% (en los córners los defensores están más cerca del balón
+  parado y el Viterbi cambia desde el primer frame); ignorar al rival hasta que toca el que saca lo
+  devuelve a 96.2%, pero el equipo sigue por debajo. La histéresis, que resetea el contador con un
+  toque propio (un duelo no es un cambio), vale más que mirar hacia delante.
+- **(b) Vivo/parón**: Viterbi de 2 estados a 0.2 s con emisiones naive Bayes (velocidad de
+  jugadores, balón fuera/invisible/activo/inactivo, máximo de velocidad en ±3 s, TV, set piece
+  cerca) y un coste de cambio; ajustadas en el GT público o en v4.0 (pseudoetiquetas). Ajustado en el
+  público, el "balón invisible" (raro allí) inunda de D el partido (52% D, D en fase 26%); neutro,
+  47–50% D. Ajustado en el partido con v4.0, lo mejor: 191 poss, 42.8% D, D en fase 16.4%, D con
+  TV en directo 15.1%, pero equipo 84.1%, set pieces con D 91.4% (v4.0 94.8%), robos 18/24 y
+  pública 0.5143. Las reglas de v3.4/v3.8 (unir parones si nadie acelera, colocar el balón)
+  imponen estructura de tramo que las emisiones por frame no capturan.
+- **Conclusión**: descartadas las dos. **La entrega sigue siendo v4.0** (md5 `b92867de…`, regenerada).

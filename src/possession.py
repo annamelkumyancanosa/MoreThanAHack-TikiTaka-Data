@@ -41,6 +41,8 @@ Historial (detalle y resultados en VERSIONS.md):
   v3.9.1 el retraso se aplica por parte y no a los saques de cada parte (datos exactos).
   v4.0 drop_tv_live_stoppages: un parón sin balón fuera ni set piece y con la TV en directo al
        menos TV_LIVE_MAX_SHARE del tiempo es juego.
+  v4.1 (descartada) balón del broadcast donde falta el del táctico. No está en el código.
+  v4.2 (descartada) Viterbi para la posesión H/A y para vivo/parón. No está en el código.
 """
 
 import numpy as np
