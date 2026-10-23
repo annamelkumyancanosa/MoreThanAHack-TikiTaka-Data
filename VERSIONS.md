@@ -31,7 +31,8 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3.4 | `f5cd2e1` | 0.8223 | 0.5000 | 15 | 0.948 | 246 · 46% |
 | v3.5 | `6f1d6b6` | **0.8336** | **0.5429** | 11 | 0.948 | 200 · 46% |
 | v3.6 | `ff08737` | 0.8336 | 0.5429 | 11 | 0.948 | 200 · 47% |
-| v3.8 | — | **0.8593** | **0.5630** | 10 | 0.959 | 196 · 47% |
+| v3.8 | `14b9be2` | 0.8593 | 0.5630 | 10 | 0.959 | 196 · 47% |
+| v3.9 | — | **0.8717** | **0.5926** | 10 | 0.964 | 197 · 47% |
 
 Partido completo vs Smart Tagging:
 
@@ -49,12 +50,13 @@ Partido completo vs Smart Tagging:
 | v3.5 | 86.5 | 20.2 | 46.2 | 96.0* |
 | v3.6 | 86.5 | 20.2 | 47.0 | 96.0* |
 | v3.8 | 87.1 | 20.8 | 47.4 | 96.0* |
+| v3.9 | 87.8 | 23.0 | 47.4 | 96.2* |
 
 \* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
 † desde v3.2 `equipo` no sirve para comparar histéresis: sube siempre que cambiamos menos de
 equipo (las fases son gruesas). Para eso, `robos` = % de ATTACKING TRANSITION (24 en el partido)
-con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24, v3.4 22/24, v3.5 21/24 (desde la
+con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24, v3.4 22/24, v3.5 21/24, v3.9 19/24 (los mismos robos, 1.2 s más tarde: dos pasan de +6.8/+7.2 s a +8.0/+8.4 s) (desde la
 s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`).
 
 ## Detalle
@@ -331,3 +333,29 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
   de juego; casi todos con gol, córner o saque de puerta al lado. Única duda: 1ª parte, último
   parón (78.6 s, p90 2.9 m/s, 4/15 ventanas activas). El número de parones cuadra con las
   estadísticas (1ª 55 frente a ~42 reanudaciones, 2ª 57 frente a ~58).
+
+### v3.9 — fechar los cambios cuando se gana el control
+- **Motivo**: (c) de la s4 (posesiones cortas). Mirando las cortas reales del GT público, el equipo
+  que tiene la posesión casi no aparece controlando en el tracking (H1.3: 0.0 s de control propio y
+  0.9 s del rival). Cruzando el control con el GT a distintos desfases, cerca de los cambios H↔A
+  coincide mejor el control de **30 frames antes** (0.789 frente a 0.733 sin desfase). La
+  sincronización tracking↔vídeo es exacta por partes (`games.py`), así que es la definición:
+  CHALLENGE.md fecha el cambio cuando el rival **gana el control**, no en el primer contacto.
+- **Medidas**: en el partido, del primer contacto del rival a la confirmación del cambio pasan 29
+  frames de mediana (154 cambios; p25 19, p75 56). En la ventana pública nuestros cambios H↔A
+  emparejados van 33–40 frames antes que el GT y las reanudaciones 22–46 frames antes (ball_active
+  usa una ventana centrada de 2 s: el balón "se activa" 1 s antes del golpeo). Los inicios de parón no
+  van adelantados.
+- **Probado**: (1) retraso global de todas las etiquetas: macroF1 máx. en 25 frames (0.8654), spellF1
+  0.593 en 30–40; también mejora el baseline (0.326 → 0.381). (2) Por tipo: retrasar el inicio del
+  parón empeora; reanudación 25–40 frames → macroF1 0.873; H↔A 20/30 → spellF1 0.578/0.593 (una
+  posesión que cruza un umbral de IoU: no se elige con esto, se elige 30 por la mediana del partido).
+  (3) Fechar el cambio directamente en la confirmación (sin llevarlo atrás): pública 0.480 y robos
+  19/24, porque acorta las posesiones antes de las reglas v3.2/v3.5. (4) Reanudar en el primer
+  frame con el balón rápido en vez de 25 fijos: igual.
+- **Cambio**: `delay_transitions` al final de `predict`: H↔A +`HANDOVER_DELAY_FRAMES` (30), D → H/A
+  +`RESTART_DELAY_FRAMES` (`BALL_ACTIVE_WINDOW // 2` = 25), sin comerse más de la mitad del tramo
+  que empieza.
+- **Resultado**: pública **0.8717 / 0.5926** / 10 posesiones, vivo/muerto F1 0.964, equipo 91.7%.
+  Partido: 197 posesiones, 110 tramos D; robos 19/24 por la ventana de ±8 s (ver nota †); D en fase
+  ofensiva 20.8 → 23.0% porque el parón dura 1 s más (las fases automáticas empiezan antes).

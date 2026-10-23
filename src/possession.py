@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.8.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.9.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -14,6 +14,8 @@ Idea general (en lenguaje de fútbol):
      es un toque: no cuenta.
   8. Un tramo vivo corto entre dos parones, sin control demostrado y del equipo que saca después,
      es colocar el balón: parte del parón.
+  9. Al final, cada cambio se fecha cuando el rival gana el control (unos 1.2 s después del primer
+     contacto) y cada reanudación con el golpeo, no media ventana antes.
 
 Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
 
@@ -33,6 +35,7 @@ Historial (detalle y resultados en VERSIONS.md):
   v3.7 (descartada) balón invisible: umbral más bajo o "varios corriendo". No está en el código.
   v3.8 absorb_placing_gaps: un tramo vivo < 10 s entre dos parones, de un solo equipo, sin control
        demostrado y del equipo que reanuda después, es parte del parón.
+  v3.9 delay_transitions: cambios H<->A 30 frames más tarde (control ganado) y reanudaciones 25.
 """
 
 import numpy as np
@@ -127,6 +130,21 @@ INTERRUPTION_MAX_FRAMES = 5 * FPS
 # (50% en fase ofensiva, como los parones); si el hueco es del otro equipo cae en su fase un 100%
 # (es juego) y no se toca.
 PLACING_MAX_FRAMES = 10 * FPS
+
+# --- Fecha de las transiciones (v3.9) ---
+# Las reglas trabajan con los cambios fechados al primer contacto del rival, pero CHALLENGE.md
+# define el cambio cuando el rival "gana el control" de la posesión. Al final retrasamos cada cambio
+# H<->A HANDOVER_DELAY_FRAMES: en el partido, del primer contacto del rival a la confirmación del
+# cambio (SWITCH_FRAMES de control) pasan 29 frames de mediana (p25 19, p75 56), y en la ventana
+# pública el control de 30 frames antes es el que más coincide con el GT cerca de los cambios.
+# Fecharlo directamente en la confirmación (sin llevarlo atrás) no sirve: acorta las posesiones
+# antes de las reglas v3.2/v3.5 y se pierden robos (21 -> 19 de 24).
+HANDOVER_DELAY_FRAMES = 30
+# Y el final de cada parón (D -> H/A) RESTART_DELAY_FRAMES: ball_active usa una ventana centrada,
+# así que el balón cuenta como activo media ventana antes del primer golpeo y el parón acaba antes
+# de la reanudación (en la ventana pública, nuestras reanudaciones van 22-46 frames antes que el GT).
+# El inicio del parón (H/A -> D) no se toca: ahí no vamos adelantados.
+RESTART_DELAY_FRAMES = BALL_ACTIVE_WINDOW // 2
 
 # --- Reanudación (v3) ---
 # Un set piece cuenta para un parón si su inicio cae dentro del D o hasta RESTART_TAG_SLACK
@@ -343,6 +361,25 @@ def absorb_placing_gaps(dead, poss, slot, team, ball):
     return dead
 
 
+def delay_transitions(labels):
+    """v3.9: retrasa cada cambio H<->A HANDOVER_DELAY_FRAMES y cada reanudación D -> H/A
+    RESTART_DELAY_FRAMES (la etiqueta anterior se alarga). Nunca se come más de la mitad del tramo
+    que empieza, para no borrar posesiones cortas."""
+    out = labels.copy()
+    change = np.flatnonzero(labels[1:] != labels[:-1]) + 1
+    for start, end in zip(change, np.r_[change[1:], len(labels)]):
+        before, after = labels[start - 1], labels[start]
+        if {before, after} == {"H", "A"}:
+            delay = HANDOVER_DELAY_FRAMES
+        elif before == "D" and after in "HA":
+            delay = RESTART_DELAY_FRAMES
+        else:
+            continue
+        delay = min(delay, (end - start) // 2)
+        out[start:start + delay] = before
+    return out
+
+
 def restart_teams(dead, restarts):
     """{primer frame vivo tras un parón: equipo que reanuda} según los set pieces del tagging.
 
@@ -428,6 +465,7 @@ def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
     # a 1.5 m/s y 9% en fase ofensiva (como los parones): es el mismo parón. El scorer ya rellenaba
     # esas X con la D anterior; lo hacemos explícito para no depender de esa regla.
     labels[labels == "X"] = "D"
+    labels = delay_transitions(labels)  # v3.9
 
     if second_half_kickoff is not None:
         half2_start = [b for b in graded_blocks if b[0] == 2][0][1]
