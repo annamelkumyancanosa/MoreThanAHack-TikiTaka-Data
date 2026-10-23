@@ -59,13 +59,14 @@ def full_match_check(labels, blocks):
     """Comparación con el Smart Tagging en todo el partido (detalle: notebooks/validate_full_match.py)."""
     row = summarise(fill_x(np.asarray(labels).astype("<U1"), blocks), load_tags(), blocks)
     print("  vs Smart Tagging: equipo coincide {:.1%} | D en fase ofensiva {:.1%} | "
-          "set pieces con D cerca {:.1%}, reanuda el equipo del tag {:.1%}".format(
-              row["team_agree"], row["phase_D"], row["sp_dead"], row["sp_team"]))
+          "set pieces con D cerca {:.1%}, reanuda el equipo del tag {:.1%} | robos {:.0f}/{}".format(
+              row["team_agree"], row["phase_D"], row["sp_dead"], row["sp_team"],
+              row["steals"] * row["steals_n"], row["steals_n"]))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", default="tikitaka_v3_4")
+    parser.add_argument("--name", default="tikitaka_v3_5")
     args = parser.parse_args()
 
     blocks = half_video_blocks("BAR-ATH")

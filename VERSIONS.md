@@ -28,7 +28,8 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3 | `0c3e5dd` | 0.8057 | 0.4889 | 19 | 0.948 | 364 · 47% |
 | v3.1 | `000ebec` | 0.7751 | 0.4632 | 21 | 0.938 | 381 · 45% |
 | v3.2 | `7a289de` | 0.7916 | 0.4706 | **17** | 0.938 | 260 · 45% |
-| v3.4 | `f5cd2e1` | **0.8223** | **0.5000** | 15 | 0.948 | 246 · 46% |
+| v3.4 | `f5cd2e1` | 0.8223 | 0.5000 | 15 | 0.948 | 246 · 46% |
+| v3.5 | — | **0.8336** | **0.5429** | 11 | 0.948 | 200 · 46% |
 
 Partido completo vs Smart Tagging:
 
@@ -43,12 +44,14 @@ Partido completo vs Smart Tagging:
 | v3.1 | 80.5 | 19.7 | 45.9 | 96.0* |
 | v3.2 | **84.6**† | 19.7 | 45.9 | 96.0* |
 | v3.4 | 84.5 | 20.2 | 46.2 | 96.0* |
+| v3.5 | 86.5 | 20.2 | 46.2 | 96.0* |
 
 \* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
 † desde v3.2 `equipo` no sirve para comparar histéresis: sube siempre que cambiamos menos de
 equipo (las fases son gruesas). Para eso, `robos` = % de ATTACKING TRANSITION (24 en el partido)
-con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24.
+con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24, v3.4 22/24, v3.5 21/24 (desde la
+s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`).
 
 ## Detalle
 
@@ -204,3 +207,53 @@ con un cambio hacia ese equipo a ±8 s: v3.1 24/24, v3.2 22/24.
   antes del D18.3 queda dentro del parón (antes salía H6.1, desplazada). Partido: 260 → 246
   posesiones, tramos D 126 → 113 (−7 en cada parte).
 - **Pendiente**: el D14.5 sigue partido por H5.5 (máximo 2.7 m/s, por encima del umbral).
+
+### v3.5 — una interrupción sin control demostrado es un toque
+- **Motivo**: fallo 4 de v3.2/v3.4: interrupciones falsas (A1.8 parte la H41.6 pública). En el
+  partido hay 72 interrupciones A‑H‑A dentro de un mismo tramo vivo. La definición oficial
+  (CHALLENGE.md) exige posesión *controlada*: "mantener el balón unos segundos o más de dos pases".
+- **Regla final**: `drop_passless_interruptions`, después de `absorb_pre_dead`. Una posesión entre
+  dos del rival, de menos de `INTERRUPTION_MAX_FRAMES` (5 s), vuelve al rival si el equipo **no
+  demuestra control**: ni `MIN_INTERRUPTION_PASSES` (1) pase real ni un mismo jugador con
+  `MIN_INTERRUPTION_CTRL_FRAMES` (2 s) de control. `control_slot` sale de `control_team` (mismo
+  criterio, por jugador).
+  - **Pase real**: el control pasa de un jugador del equipo a otro y el balón recorre al menos
+    `PASS_MIN_M` (5 m) entre el último frame del primero y el primero del segundo.
+- **Cómo se llegó** (`python notebooks/diagnose_short_spells.py`). Referencia: fase ofensiva del
+  Smart Tagging durante la interrupción. Las fases son gruesas y casi nunca marcan una posesión de
+  3 s (las cortas reales del GT público caen en fase propia solo un 17%), así que se compara la
+  **fase del rival** con la de las posesiones cortas reales del GT público: **28%**.
+  1. *Primer intento, "2 saltos de control"* (cualquier cambio de jugador con el balón): 0 saltos →
+     57% en fase del rival; 1 salto → 72%; ≥ 2 → 33%. Con 1 salto salía *peor* que con 0: el control
+     salta entre dos compañeros pegados al balón en una melé, no es un pase.
+  2. *Revisión del equipo: un pase que llega a un compañero ya es control.* Con pases reales
+     (≥ 5 m), interrupciones < 5 s: 0 pases → 68% en fase del rival (26); **1 pase → 33% (5)**,
+     como las reales; 2 → 16% (6). Los saltos sin pase real caen en fase del rival un **100%** (5):
+     eran el ruido. → basta 1 pase real.
+  3. *Revisión del equipo: no siempre hay pase.* Quien recupera tras un despeje o un mal pase puede
+     conducir o regatear. De las 26 interrupciones con < 2 saltos, solo 2 llegan a ≥ 2 s de control
+     de un mismo jugador y caen en fase propia un 50% (el resto, 8%) → se respetan. El
+     desplazamiento del balón no sirve como conducción (los "acarreos" ≥ 5 m caen en fase del
+     rival un 78%: balón que pasa junto a un jugador) y la presión del rival no separa.
+  4. *Tope de duración*: las interrupciones largas sin pase junto a un robo (ATTACKING TRANSITION)
+     son reales (6.5 s, 86% en fase propia). Sin tope, robos 22 → 18/24.
+- **Barrido** (regla de saltos, sin conducción; la ventana pública da 0.543 en todas):
+
+  | saltos · tope | partido poss | robos | frames cambiados | en fase del equipo nuevo / antiguo |
+  |---|---|---|---|---|
+  | 0 (= v3.4) | 246 | 22/24 | — | — |
+  | 1 · 5 s | 208 | 21/24 | 42 s | 62% / 6% |
+  | 2 · 3 s | 210 | 21/24 | 37 s | 65% / 7% |
+  | 2 · 5 s | 200 | 21/24 | 59 s | 69% / 8% |
+  | 2 · 8 s | 196 | 20/24 | 71 s | 67% / 14% |
+  | 2 · sin tope | 194 | 18/24 | — | — |
+  | 2 saltos · 5 s + conducción 2 s | 202 | 21/24 | 54 s | 75% / 0% |
+  | **1 pase real · 5 s + conducción 2 s (final)** | **200** | **21/24** | 56 s | **76% / 0%** |
+
+- **Resultado**: ventana pública spellF1 0.500 → 0.543, macroF1 0.822 → 0.834, equipo (ambos
+  vivos) 0.899 → 0.917; desaparecen las falsas A1.8 y H2.2. Partido: 246 → 200 posesiones, equipo
+  84.5 → 86.5%, robos 22 → 21/24. Ningún frame cambiado cae en fase del equipo al que se le quita.
+- **Coste / pendiente**: en la ventana pública predecimos 11 posesiones de 17; las cortas reales
+  (H0.8, H1.3, A2.8…) siguen sin salir (no salían antes; un toque sin control no es posesión según
+  la definición oficial). El robo perdido es una interrupción sin pases que cae un 58% en fase del
+  rival: ambigua.

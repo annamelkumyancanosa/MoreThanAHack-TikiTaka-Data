@@ -41,6 +41,9 @@ POSSESSION_CODES = ("BUILD UP", "PROGRESSION", "CREATING CHANCES", "LONG BALL",
 # Margen (frames) alrededor del inicio de un SET PIECE donde buscamos nuestro parón: el tiempo
 # del tag puede ir desfasado 3-12 s respecto al vídeo.
 SET_PIECE_WINDOW = 12 * FPS
+# Margen (frames) alrededor del inicio de un ATTACKING TRANSITION donde buscamos el cambio de
+# posesión hacia ese equipo (métrica de robos, s3).
+STEAL_WINDOW = 8 * FPS
 # Tamaño de bloque para el detalle (igual que la tabla de % balón visible de CONTEXT.md).
 BLOCK_FRAMES = 5 * 60 * FPS
 
@@ -123,6 +126,19 @@ def set_piece_metrics(labels, tags, mask):
     return {"sp_n": n, "sp_dead": hits / max(n, 1), "sp_team": team_ok / max(team_n, 1)}
 
 
+def steal_metrics(labels, tags, mask):
+    """Robos: % de ATTACKING TRANSITION con un cambio hacia ese equipo (desde el rival o desde D)
+    a ±STEAL_WINDOW de su inicio. Sirve para comparar histéresis sin premiar no cambiar nunca."""
+    hits = n = 0
+    for row in tags[(tags.code == "ATTACKING TRANSITION") & tags.team.notna()].itertuples():
+        if not mask[row.start]:
+            continue
+        n += 1
+        seg = labels[max(row.start - STEAL_WINDOW, 0):row.start + STEAL_WINDOW + 1]
+        hits += bool(np.any((seg[1:] == row.team) & (seg[:-1] != row.team)))
+    return {"steals_n": n, "steals": hits / max(n, 1)}
+
+
 def possession_count(labels, blocks):
     return sum(lab in "HA" for _, f, l in blocks for lab, _, _ in runs(labels, f, l))
 
@@ -136,6 +152,7 @@ def summarise(labels, tags, blocks, ref_team=None, mask=None):
     row = {"poss": possession_count(labels, blocks), "D_%": np.mean(labels[mask] == "D")}
     row.update(team_metrics(labels, ref_team, mask))
     row.update(set_piece_metrics(labels, tags, mask))
+    row.update(steal_metrics(labels, tags, mask))
     return row
 
 
@@ -164,7 +181,7 @@ def load_labels(path):
 
 def fmt(df):
     pct = [c for c in df.columns if c in ("D_%", "team_agree", "phase_D", "sp_dead", "sp_team",
-                                          "ball_vis")]
+                                          "ball_vis", "steals")]
     out = df.copy()
     for c in pct:
         out[c] = (100 * out[c]).map("{:.1f}".format)
@@ -187,6 +204,8 @@ def main():
     print("== Partido completo vs Smart Tagging ==")
     print("  team_agree: % frames con fase ofensiva y predicción H/A cuyo equipo coincide")
     print("  phase_D: % de frames de fase ofensiva que predecimos D")
+    print("  steals: % ATTACKING TRANSITION con un cambio hacia ese equipo a ±{} s".format(
+        STEAL_WINDOW // FPS))
     print("  sp_dead: % set pieces con un D nuestro a ±{} s; sp_team: reanuda el equipo del tag"
           .format(SET_PIECE_WINDOW // FPS))
     table = pd.DataFrame({name: summarise(lab, tags, blocks, ref_team) for name, lab in preds.items()}).T
@@ -199,7 +218,7 @@ def main():
     rows = {"GT (techo)": summarise(gt, tags, pub_blocks, ref_team, public)}
     rows.update({name: summarise(lab, tags, pub_blocks, ref_team, public) for name, lab in preds.items()})
     print("\n== Solo ventana pública (referencia; pocas fases → orientativo) ==")
-    print(fmt(pd.DataFrame(rows).T.drop(columns=["sp_n", "sp_dead", "sp_team"])))
+    print(fmt(pd.DataFrame(rows).T.drop(columns=["sp_n", "sp_dead", "sp_team", "steals_n", "steals"])))
 
     if args.blocks:
         from src.atd import load_tracking
