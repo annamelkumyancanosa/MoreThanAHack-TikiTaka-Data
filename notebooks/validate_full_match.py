@@ -16,6 +16,13 @@ Qué sabemos del Smart Tagging (contrastado con el GT público):
     parones). Por eso se imprime también el "techo" que saca el GT en la ventana pública.
   - SET PIECES: el equipo es fiable, el tiempo va desfasado unos segundos (de ahí la ventana
     SET_PIECE_WINDOW). Los saques de banda vienen sin equipo (N/A).
+
+Desde v4.0 también contra la TV (src/broadcast.py), que no depende del tracking táctico:
+  - D_tv: % de frames con la TV en directo que predecimos D (GT público: 7%).
+  - live_tvoff: % de frames con la TV fuera de directo (repetición, primer plano) que predecimos
+    vivos (GT público: 47%).
+  - susp_D: parones sin balón fuera ni set piece y con la TV en directo >= 50% del tiempo (los que
+    quita v4.0: a partir de v4.0 es circular, como `reanuda`).
 """
 
 import argparse
@@ -29,7 +36,7 @@ import pandas as pd
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from games import half_video_blocks  # noqa: E402
-from src.tagging import load_tags  # noqa: E402
+from src.tagging import load_tags, set_piece_frames  # noqa: E402
 
 FPS = 25
 RESULTS_DIR = os.path.join(ROOT, "evaluation", "results")
@@ -139,11 +146,38 @@ def steal_metrics(labels, tags, mask):
     return {"steals_n": n, "steals": hits / max(n, 1)}
 
 
+def tv_metrics(labels, tv, mask):
+    """Métricas contra la TV. `tv` = {"live": tv_live, "out": ball_out, "sp": set_piece_frames}."""
+    from src.possession import TV_LIVE_MAX_SHARE, TV_OUT_SLACK, TV_TAG_AFTER, TV_TAG_BEFORE
+    live, out, sp = tv["live"], tv["out"], np.asarray(tv["sp"])
+    on, off = mask & live, mask & ~live
+    suspicious = 0
+    dead = np.r_[False, labels == "D", False] & np.r_[False, mask, False]
+    edges = np.flatnonzero(np.diff(dead.astype(np.int8)))
+    for a, e in zip(edges[::2], edges[1::2]):
+        if (not out[max(a - TV_OUT_SLACK, 0):e].any()
+                and not np.any((sp >= a - TV_TAG_BEFORE) & (sp < e + TV_TAG_AFTER))
+                and live[a:e].mean() >= TV_LIVE_MAX_SHARE):
+            suspicious += 1
+    return {"D_tv": np.mean(labels[on] == "D"),
+            "live_tvoff": np.mean(np.isin(labels[off], ("H", "A"))),
+            "susp_D": suspicious}
+
+
+def load_tv(blocks):
+    """Lo que necesita tv_metrics: TV en directo, balón fuera y set pieces."""
+    from src.atd import load_tracking
+    from src.broadcast import load_tv_live
+    from src.possession import ball_out
+    trk = load_tracking()
+    return {"live": load_tv_live(trk, blocks), "out": ball_out(trk), "sp": set_piece_frames(load_tags())}
+
+
 def possession_count(labels, blocks):
     return sum(lab in "HA" for _, f, l in blocks for lab, _, _ in runs(labels, f, l))
 
 
-def summarise(labels, tags, blocks, ref_team=None, mask=None):
+def summarise(labels, tags, blocks, ref_team=None, mask=None, tv=None):
     """Una fila de métricas para unas etiquetas (ya con las X rellenadas)."""
     if mask is None:
         mask = graded_mask(len(labels), blocks)
@@ -153,6 +187,8 @@ def summarise(labels, tags, blocks, ref_team=None, mask=None):
     row.update(team_metrics(labels, ref_team, mask))
     row.update(set_piece_metrics(labels, tags, mask))
     row.update(steal_metrics(labels, tags, mask))
+    if tv is not None:
+        row.update(tv_metrics(labels, tv, mask))
     return row
 
 
@@ -181,7 +217,7 @@ def load_labels(path):
 
 def fmt(df):
     pct = [c for c in df.columns if c in ("D_%", "team_agree", "phase_D", "sp_dead", "sp_team",
-                                          "ball_vis", "steals")]
+                                          "ball_vis", "steals", "D_tv", "live_tvoff")]
     out = df.copy()
     for c in pct:
         out[c] = (100 * out[c]).map("{:.1f}".format)
@@ -208,15 +244,21 @@ def main():
         STEAL_WINDOW // FPS))
     print("  sp_dead: % set pieces con un D nuestro a ±{} s; sp_team: reanuda el equipo del tag"
           .format(SET_PIECE_WINDOW // FPS))
-    table = pd.DataFrame({name: summarise(lab, tags, blocks, ref_team) for name, lab in preds.items()}).T
+    print("  D_tv: % frames con TV en directo que predecimos D (GT público 7%); live_tvoff: % frames con")
+    print("  TV fuera que predecimos vivos (GT 47%); susp_D: parones sin balón fuera ni set piece con TV")
+    print("  en directo >= 50% (circular desde v4.0)")
+    tv = load_tv(blocks)
+    table = pd.DataFrame({name: summarise(lab, tags, blocks, ref_team, tv=tv)
+                          for name, lab in preds.items()}).T
     print(fmt(table))
 
     # Techo: lo que saca el propio GT en la ventana pública (las fases no son posesiones exactas).
     gt = load_labels(GT_PATH)
     public = gt != "X"
     pub_blocks = [(1, int(np.flatnonzero(public)[0]), int(np.flatnonzero(public)[-1]))]
-    rows = {"GT (techo)": summarise(gt, tags, pub_blocks, ref_team, public)}
-    rows.update({name: summarise(lab, tags, pub_blocks, ref_team, public) for name, lab in preds.items()})
+    rows = {"GT (techo)": summarise(gt, tags, pub_blocks, ref_team, public, tv)}
+    rows.update({name: summarise(lab, tags, pub_blocks, ref_team, public, tv)
+                 for name, lab in preds.items()})
     print("\n== Solo ventana pública (referencia; pocas fases → orientativo) ==")
     print(fmt(pd.DataFrame(rows).T.drop(columns=["sp_n", "sp_dead", "sp_team", "steals_n", "steals"])))
 

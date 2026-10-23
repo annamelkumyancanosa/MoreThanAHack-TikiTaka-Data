@@ -18,8 +18,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 from games import half_video_blocks  # noqa: E402
 from src.atd import load_tracking  # noqa: E402
-from src.possession import predict  # noqa: E402
-from src.tagging import load_tags, restarts  # noqa: E402
+from src.possession import ball_out, predict  # noqa: E402
+from src.broadcast import load_tv_live  # noqa: E402
+from src.tagging import load_tags, restarts, set_piece_frames  # noqa: E402
 from notebooks.validate_full_match import fill_x, summarise  # noqa: E402
 
 RESULTS_DIR = os.path.join(ROOT, "evaluation", "results")
@@ -55,28 +56,37 @@ def diagnostics(labels, blocks):
         "{} {:.1%}".format(k, np.mean(graded == k)) for k in "HADX"))
 
 
-def full_match_check(labels, blocks):
-    """Comparación con el Smart Tagging en todo el partido (detalle: notebooks/validate_full_match.py)."""
-    row = summarise(fill_x(np.asarray(labels).astype("<U1"), blocks), load_tags(), blocks)
+def full_match_check(labels, blocks, tags, tv):
+    """Comparación con el Smart Tagging y la TV en todo el partido (detalle:
+    notebooks/validate_full_match.py)."""
+    row = summarise(fill_x(np.asarray(labels).astype("<U1"), blocks), tags, blocks, tv=tv)
     print("  vs Smart Tagging: equipo coincide {:.1%} | D en fase ofensiva {:.1%} | "
           "set pieces con D cerca {:.1%}, reanuda el equipo del tag {:.1%} | robos {:.0f}/{}".format(
               row["team_agree"], row["phase_D"], row["sp_dead"], row["sp_team"],
               row["steals"] * row["steals_n"], row["steals_n"]))
+    print("  vs TV: D con TV en directo {:.1%} (GT público 7%) | vivo con TV fuera {:.1%} (GT 47%) | "
+          "parones sospechosos {}".format(row["D_tv"], row["live_tvoff"], row["susp_D"]))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", default="tikitaka_v3_9_1")
+    parser.add_argument("--name", default="tikitaka_v4_0")
+    parser.add_argument("--no-tv", action="store_true",
+                        help="sin la señal de TV del broadcast (equivale a v3.9.1)")
     args = parser.parse_args()
 
     blocks = half_video_blocks("BAR-ATH")
-    labels = predict(load_tracking(), blocks, SECOND_HALF_KICKOFF, restarts(load_tags()))
+    trk, tags = load_tracking(), load_tags()
+    tv_live = load_tv_live(trk, blocks)
+    sp = set_piece_frames(tags)
+    labels = predict(trk, blocks, SECOND_HALF_KICKOFF, restarts(tags),
+                     None if args.no_tv else tv_live, sp)
 
     path = os.path.join(RESULTS_DIR, args.name + ".csv")
     write_submission(path, labels)
     print("escrito", os.path.relpath(path, ROOT))
     diagnostics(labels, blocks)
-    full_match_check(labels, blocks)
+    full_match_check(labels, blocks, tags, {"live": tv_live, "out": ball_out(trk), "sp": sp})
 
     sys.stdout.flush()  # que lo nuestro salga antes que la salida de los subprocesos
     py = sys.executable

@@ -1,4 +1,4 @@
-"""Máquina de estados de posesión a partir del tracking. Versión actual: v3.9.1.
+"""Máquina de estados de posesión a partir del tracking. Versión actual: v4.0.
 
 Idea general (en lenguaje de fútbol):
   1. Balón muerto (D): jugadores lentos Y balón inactivo durante unos segundos, o balón fuera
@@ -16,6 +16,8 @@ Idea general (en lenguaje de fútbol):
      es colocar el balón: parte del parón.
   9. Al final, cada cambio se fecha cuando el rival gana el control (unos 1.2 s después del primer
      contacto) y cada reanudación con el golpeo, no media ventana antes.
+  10. Un parón sin balón fuera ni set piece durante el que la TV sigue mostrando el juego en
+     directo (sin repetición ni primer plano) no es un parón (src/broadcast.py).
 
 Todo lo ajustable está en el bloque PARÁMETROS. Cada regla es una función independiente.
 
@@ -37,6 +39,8 @@ Historial (detalle y resultados en VERSIONS.md):
        demostrado y del equipo que reanuda después, es parte del parón.
   v3.9 delay_transitions: cambios H<->A 30 frames más tarde (control ganado) y reanudaciones 25.
   v3.9.1 el retraso se aplica por parte y no a los saques de cada parte (datos exactos).
+  v4.0 drop_tv_live_stoppages: un parón sin balón fuera ni set piece y con la TV en directo al
+       menos TV_LIVE_MAX_SHARE del tiempo es juego.
 """
 
 import numpy as np
@@ -131,6 +135,20 @@ INTERRUPTION_MAX_FRAMES = 5 * FPS
 # (50% en fase ofensiva, como los parones); si el hueco es del otro equipo cae en su fase un 100%
 # (es juego) y no se toca.
 PLACING_MAX_FRAMES = 10 * FPS
+
+# --- TV (v4.0) ---
+# Un parón detectado sin balón fuera del campo ni set piece en el Smart Tagging, durante el que la
+# TV sigue en directo al menos TV_LIVE_MAX_SHARE del tiempo, es juego lento: la realización pone
+# repeticiones y primeros planos en los parones. En el GT público los 4 parones tienen la TV en
+# directo un 14-41% del tiempo y P(D | TV en directo) = 7%. En el partido (v3.9.1) hay 30 parones
+# así (5.4 min, mediana 7 s): caen en fase ofensiva un 69% (parones del GT 37%, juego 55%) y 19 son
+# de la 1ª parte, donde el balance con las estadísticas ya decía que sobran ~22 parones.
+TV_LIVE_MAX_SHARE = 0.5
+# Balón fuera desde TV_OUT_SLACK antes del parón; set piece con inicio entre TV_TAG_BEFORE antes y
+# TV_TAG_AFTER después del parón (el tag empieza durante el parón, desfasado unos segundos).
+TV_OUT_SLACK = 2 * FPS
+TV_TAG_BEFORE = 5 * FPS
+TV_TAG_AFTER = 2 * FPS
 
 # --- Fecha de las transiciones (v3.9) ---
 # Las reglas trabajan con los cambios fechados al primer contacto del rival, pero CHALLENGE.md
@@ -256,6 +274,29 @@ def merge_quiet_gaps(dead, speed):
         if np.max(speed[start:end]) < QUIET_GAP_SPEED_MS:
             dead[start:end] = True
     return dead
+
+
+def drop_tv_live_stoppages(dead, tv_live, out, set_pieces):
+    """v4.0: quita los parones sin balón fuera (`out`, ball_out) ni set piece (`set_pieces`, frames
+    de inicio) cuya TV está en directo (`tv_live`) al menos TV_LIVE_MAX_SHARE del tiempo.
+
+    Devuelve (dead, resets): `resets` son los finales de los parones quitados. Ahí el juego iba
+    lento y a menudo sin balón visible: como tras un parón, reanuda quien controla primero (ver
+    assign_possession). Sin eso, la posesión seguía congelada y 1421 frames vivos cambiaban de
+    equipo (coincidencia con la fase 87.8 -> 86.3%) y se perdía un robo.
+    """
+    dead = dead.copy()
+    resets = []
+    set_pieces = np.asarray(set_pieces)
+    for start, end in _runs(dead):
+        if out[max(start - TV_OUT_SLACK, 0):end].any():
+            continue
+        if np.any((set_pieces >= start - TV_TAG_BEFORE) & (set_pieces < end + TV_TAG_AFTER)):
+            continue
+        if tv_live[start:end].mean() >= TV_LIVE_MAX_SHARE:
+            dead[start:end] = False
+            resets.append(end)
+    return dead, resets
 
 
 def absorb_pre_dead(poss, dead):
@@ -395,14 +436,17 @@ def restart_teams(dead, restarts):
     return out
 
 
-def assign_possession(control, dead, restart_team=None):
+def assign_possession(control, dead, restart_team=None, resets=()):
     """Recorre cada tramo vivo y decide la posesión con histéresis.
 
     `restart_team`: {primer frame vivo: equipo} (ver restart_teams); sin él, reanuda quien
-    controla primero. Devuelve un array de HOME/AWAY/NOBODY (NOBODY = muerto o sin información).
+    controla primero. `resets` (v4.0): frames tras los que el primero que controla se queda la
+    posesión sin histéresis, como al reanudar. Devuelve un array de HOME/AWAY/NOBODY (NOBODY =
+    muerto o sin información).
     """
     poss = np.full(len(control), NOBODY, dtype=np.int8)
     restart_team = restart_team or {}
+    resets = set(resets)
 
     for start, end in _runs(~dead):
         controlled = np.flatnonzero(control[start:end] != NOBODY)
@@ -421,9 +465,16 @@ def assign_possession(control, dead, restart_team=None):
 
         challenger_count = 0
         challenger_since = None  # primer frame de la racha del rival, para fechar el cambio
+        pending_reset = False
         for f in range(start + controlled[0], end):
             c = control[f]
-            if c == current:
+            if f in resets:
+                pending_reset = True
+            if pending_reset and c != NOBODY:
+                # v4.0: fin de un parón quitado: reanuda quien controla primero.
+                current, pending_reset = c, False
+                challenger_count, challenger_since = 0, None
+            elif c == current:
                 challenger_count, challenger_since = 0, None
             elif c != NOBODY:
                 if challenger_since is None:
@@ -442,17 +493,23 @@ def assign_possession(control, dead, restart_team=None):
 # PIPELINE
 # ---------------------------------------------------------------------------------------------
 
-def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None):
+def predict(trk, graded_blocks, second_half_kickoff=None, restarts=None, tv_live=None,
+            set_pieces=None):
     """Etiquetas finales por frame ('H'/'A'/'D'/'X').
 
     graded_blocks: [(half, first_frame, last_frame), ...] de games.half_video_blocks.
     second_half_kickoff: frame del saque de la 2ª parte; antes de él todo es D (dato publicado).
     restarts: [(frame, HOME/AWAY)] de src.tagging.restarts (v3); None = sin Smart Tagging.
+    tv_live: máscara de src.broadcast.load_tv_live (v4.0) y set_pieces: frames de
+    src.tagging.set_piece_frames; None = sin broadcast.
     """
     dead = detect_dead(trk)
+    resets = []
+    if tv_live is not None:
+        dead, resets = drop_tv_live_stoppages(dead, tv_live, ball_out(trk), set_pieces)  # v4.0
     slot = control_slot(trk)
     control = control_team(trk, slot)
-    poss = assign_possession(control, dead, restart_teams(dead, restarts or []))
+    poss = assign_possession(control, dead, restart_teams(dead, restarts or []), resets)
     poss = absorb_pre_dead(poss, dead)  # v3.2
     poss = drop_passless_interruptions(poss, dead, slot, trk["team"], trk["ball"])  # v3.5
     dead = absorb_placing_gaps(dead, poss, slot, trk["team"], trk["ball"])  # v3.8

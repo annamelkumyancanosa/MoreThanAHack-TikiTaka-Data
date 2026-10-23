@@ -42,13 +42,18 @@ pip install -r requirements.txt
 ## Reproducing the submission
 
 Tested with Python 3.10.12 and the pinned `requirements.txt`. Needs these match files in
-`data/tactical/` (not in the repository):
+`data/` (not in the repository):
 
 ```
 data/tactical/BAR-ATH_tactical_atd.txt
 data/tactical/BAR-ATH_tactical_atd.xml
 data/tactical/BAR-ATH_tactical_smart_tagging.xml
+data/broadcast/BAR-ATH_broadcast_atd.txt
+data/broadcast/BAR-ATH_broadcast_atd.xml
 ```
+
+Since v4.0 the broadcast tracking is used too: `src/broadcast.py` aligns it to the tactical video
+from the player positions (no hand-made table) and marks the frames where the TV shows live play.
 
 ```bash
 python run.py --name TikiTaka-Data
@@ -56,12 +61,13 @@ python run.py --name TikiTaka-Data
 
 This writes `evaluation/results/TikiTaka-Data.csv`, validates it with the official
 `validate_submission.py` and scores it on the public window. The first run parses the tracking
-file (about 10 s) and caches it as `data/tactical/BAR-ATH_tactical_atd.npz`; the cache does not
-change the output.
+file (about 10 s) and caches it as `data/tactical/BAR-ATH_tactical_atd.npz`, and aligns the
+broadcast (about 90 s, cached as `data/broadcast/BAR-ATH_broadcast_atd_tv_live.npz`); the caches do
+not change the output.
 
 The model is in `src/possession.py`; every version and why it changed is in `VERSIONS.md`.
 
 ## Deadlines
 
 - Submission: **November 17, 2026**
-- Deliverables: possession CSV, public code repository, short technical document
+- Deliverables: possession CSV, public code repository, short technical document

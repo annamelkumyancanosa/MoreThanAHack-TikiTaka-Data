@@ -3,6 +3,7 @@
     from src.tagging import load_tags, restarts
     tags = load_tags()      # code, team ('H'/'A'/None), type, start, end (frames de vídeo)
     restarts(tags)          # [(frame, HOME/AWAY)] de set pieces con equipo conocido
+    set_piece_frames(tags)  # frames de inicio de todos los set pieces (también sin equipo)
 
 Lo contrastado (detalle en notebooks/validate_full_match.py y CONTEXT.md):
   - SET PIECES: el `Team` es el que saca y es fiable; el tag empieza durante el parón, de media
@@ -57,3 +58,8 @@ def restarts(tags):
         if team is not None:
             out.append((row.start, TEAM_ID[team]))
     return out
+
+
+def set_piece_frames(tags):
+    """Frame de inicio de cada SET PIECE, tenga equipo o no (los saques de banda vienen sin él)."""
+    return tags.loc[tags.code == "SET PIECES", "start"].to_numpy()

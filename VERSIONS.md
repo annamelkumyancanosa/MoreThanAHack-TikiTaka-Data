@@ -34,6 +34,7 @@ Referencia oficial (partido completo, privado): `baseline_smooth50` spellF1 **0.
 | v3.8 | `14b9be2` | 0.8593 | 0.5630 | 10 | 0.959 | 196 · 47% |
 | v3.9 | `804a79f` | 0.8717 | 0.5926 | 10 | 0.964 | 197 · 47% |
 | v3.9.1 | `ff4ef58` | **0.8724** | **0.5926** | 10 | 0.964 | 197 · 47% |
+| v4.0 | — | 0.8724 | 0.5926 | 10 | 0.964 | 187 · 42% |
 
 Partido completo vs Smart Tagging:
 
@@ -52,6 +53,7 @@ Partido completo vs Smart Tagging:
 | v3.6 | 86.5 | 20.2 | 47.0 | 96.0* |
 | v3.8 | 87.1 | 20.8 | 47.4 | 96.0* |
 | v3.9 | 87.8 | 23.0 | 47.4 | 96.2* |
+| v4.0 | 85.8 | 16.2 | 42.4 | 96.2* |
 
 \* circular: v3, v3.1 y v3.2 usan esos mismos tags para decidir quién saca; solo confirma que la regla se aplica.
 
@@ -374,3 +376,34 @@ s4 lo calcula `validate_full_match.py`, columna `steals`, y lo imprime `run.py`)
   posterior a todas las reglas, que siguen decidiendo con los cambios fechados al primer contacto
   (decisiones idénticas a v3.8); en el CSV una posesión de 3–4 s antes de un parón sale 1.2 s más
   corta. 0 posesiones < 1 s.
+
+### v4.0 — la TV dice cuándo no hay parón
+- **Motivo**: análisis de la s5 para una v4. El broadcast trae su propio tracking, sin alinear
+  (DATA.md). Alineado por la colocación de los jugadores, cada parte tiene un desfase constante
+  (táctico = broadcast + 4013 / 26919; jugadores a 0.7–0.8 m). El balón del broadcast casi no
+  ayuda (3.7 de los 42.7 min sin balón del táctico), pero **el estado de la TV sí**: si los
+  jugadores del broadcast no coinciden con los del táctico, la TV está en una repetición o un
+  primer plano, cosa que la realización hace en los parones.
+- **Contraste con el GT público**: P(D | TV en directo) **7%**, P(D | TV fuera) 53%; los 4 parones
+  tienen la TV en directo un 14–41% del tiempo. En el partido (v3.9.1) predecíamos D en el **24%**
+  de los frames con la TV en directo. Hay 30 parones sin balón fuera, sin set piece y con la TV en
+  directo ≥ 50% (5.4 min, mediana 7 s): caen en fase ofensiva un **69%** (parones del GT 37%, juego
+  55%) y 19 son de la 1ª parte, donde el balance con las estadísticas ya decía que sobran ~22
+  parones (v3.3). Tres fuentes independientes apuntan a lo mismo: juego lento marcado como parón.
+- **Cambio**: `src/broadcast.py` (alineación medida en código y cacheada; máscara `tv_live`);
+  `drop_tv_live_stoppages` tras `detect_dead`: quita esos parones (`TV_LIVE_MAX_SHARE` 0.5, balón
+  fuera desde 2 s antes, set piece de 5 s antes a 2 s después). Al final de cada parón quitado
+  reanuda quien controla primero (`resets` en `assign_possession`): sin eso la posesión seguía
+  congelada, 1421 frames vivos cambiaban de equipo y se perdía un robo. `run.py --no-tv` reproduce
+  v3.9.1 (mismo md5).
+- **Validación nueva** (`validate_full_match.py`, la imprime `run.py`): `D_tv` = % de frames con la
+  TV en directo que predecimos D (GT público 7%), `live_tvoff` = % de frames con la TV fuera que
+  predecimos vivos (GT 47%), `susp_D` = parones como los de arriba (circular desde v4.0).
+  `notebooks/explore_broadcast.py` imprime la alineación, la cobertura y el reparto por parones.
+- **Resultado**: pública igual (0.8724 / 0.5926; ahí no hay parones así). Partido: 109 → 79 tramos
+  D, 187 posesiones, D en fase ofensiva 23.0 → 16.2%, D con TV en directo 24.4 → 16.6%, robos 19/24
+  (igual), reanuda 96.2%. Los frames recuperados (5.8 min) tienen fase ofensiva el 52% del tiempo
+  (como el juego) y el equipo coincide con ella un 70% (flojo entre dos posesiones del Athletic,
+  31%); en los frames que ya eran vivos cambia el equipo en 795 (coincidencia 87.8 → 87.2%).
+- **Pendiente**: el otro lado de la señal, tramos vivos con la TV fuera > 10 s (vivo con TV fuera
+  20.6% frente al 47% del GT: aquí no parece que sobre juego); el equipo en los tramos recuperados.
